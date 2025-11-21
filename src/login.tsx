@@ -6,14 +6,16 @@ import {
   StyleSheet, 
   Text, 
   Alert, 
-  ActivityIndicator 
+  ActivityIndicator,
+  TouchableOpacity // Adicionamos este import!
 } from 'react-native';
+
+import { router } from 'expo-router'; // Adicionamos este import para navegação!
 
 // Importa a função de autenticação do Firebase
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 
 // Importa a configuração que tu já criaste
-// ATENÇÃO: Verifica se o caminho '../firebaseConfig' está correto para a tua estrutura de pastas
 import { app } from './firebaseConfig'; 
 
 export default function Login() {
@@ -41,12 +43,14 @@ export default function Login() {
       const user = userCredential.user;
       
       // Se chegar aqui, o login funcionou!
-      Alert.alert('Sucesso!');
+      Alert.alert('Sucesso!', `Bem-vindo de volta, ${user.email}`);
       console.log('Login realizado com sucesso:', user.uid);
       
-      // Aqui tu poderias redirecionar para a Home, por exemplo:
-      // navigation.navigate('Home');
-
+      // ************************************************************
+      // AQUI É ONDE COLOCAMOS O CÓDIGO PARA REDIRECIONAR PARA A HOME
+      // ************************************************************
+      // router.replace('/home'); // Assumindo que criaste uma rota chamada 'home'
+      
     } catch (error: any) {
       // 4. Tratamento de erros (senha errada, email não existe, etc)
       console.error(error);
@@ -68,6 +72,12 @@ export default function Login() {
     }
   };
 
+  // Função para navegar para o cadastro
+  const handleGoToSignUp = () => {
+    // Usamos o router para empurrar a rota '/signup' para a pilha de navegação
+    router.push('/singup'); 
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Acesso ao Sistema</Text>
@@ -79,7 +89,7 @@ export default function Login() {
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
-        autoCapitalize="none" // Importante para emails
+        autoCapitalize="none"
       />
 
       {/* Campo de Senha */}
@@ -88,7 +98,7 @@ export default function Login() {
         placeholder="Digite a sua senha"
         value={password}
         onChangeText={setPassword}
-        secureTextEntry={true} // Oculta a senha
+        secureTextEntry={true}
       />
 
       {/* Botão de Login ou Indicador de Carregamento */}
@@ -97,6 +107,16 @@ export default function Login() {
       ) : (
         <Button title="Entrar" onPress={handleLogin} />
       )}
+
+      {/* NOVO CÓDIGO: Botão para ir para a tela de Cadastro */}
+      <View style={{ marginTop: 20 }}>
+        <Text style={{ textAlign: 'center', marginBottom: 5 }}>Ainda não tem uma conta?</Text>
+        <TouchableOpacity onPress={handleGoToSignUp}>
+          <Text style={{ color: 'blue', textAlign: 'center', fontWeight: 'bold' }}>
+            Criar conta agora
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -123,5 +143,5 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     paddingHorizontal: 10,
     backgroundColor: '#fff',
-  },
+  },
 });
