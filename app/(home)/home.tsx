@@ -23,14 +23,11 @@ export default function Home() {
     <View style={styles.base}>
     <View style={styles.container}>
 
-      <Text style={styles.texth1}>Vamos Personalizar o seu perfil</Text>
-      <Text style={styles.texth2}>Vamos Personalizar o seu perfil</Text>
-      <TextInput style={globalStyles.input}
-      underlineColorAndroid="transparent"
-      
-      >
-        
+      <Text style={styles.texth1}>VAMOS PERSONALIZAR O SEU PERFIL</Text>
+      <Text style={styles.texth2}>Seu nome completo</Text>
+      <TextInput style={globalStyles.input} underlineColorAndroid="transparent">
       </TextInput>
+
 
       </View>
       
@@ -46,7 +43,9 @@ const styles = StyleSheet.create({
   texth1:{
     color:'white',
     fontFamily:'Inter',
-    fontSize:20,
+    fontSize:18,
+    paddingBlockEnd:10,
+    
   },
   texth2:{
     color:'white',
