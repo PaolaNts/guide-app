@@ -7,29 +7,25 @@ import {
   Text, 
   Alert, 
   ActivityIndicator,
-  TouchableOpacity // Adicionamos este import!
+  TouchableOpacity
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
-import { router } from 'expo-router'; // Adicionamos este import para navegação!
+import { router } from 'expo-router';
 
-// Importa a função de autenticação do Firebase
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-
-// Importa a configuração que tu já criaste
-import { app } from './firebaseConfig'; 
+import { app } from '../../src/firebaseConfig'; 
 
 export default function Login() {
-  // 1. Definição dos estados para armazenar os dados dos inputs
+
+  // Estados
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Inicializa a autenticação
   const auth = getAuth(app);
 
-  // 2. Função que lida com o processo de login
   const handleLogin = async () => {
-    // Validação simples para ver se os campos não estão vazios
     if (email === '' || password === '') {
       Alert.alert('Erro', 'Por favor, preenche todos os campos.');
       return;
@@ -38,22 +34,16 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 3. Chama o Firebase para tentar fazer login
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      // Se chegar aqui, o login funcionou!
       Alert.alert('Sucesso!', `Bem-vindo de volta, ${user.email}`);
       console.log('Login realizado com sucesso:', user.uid);
-      
-      // ************************************************************
-      // AQUI É ONDE COLOCAMOS O CÓDIGO PARA REDIRECIONAR PARA A HOME
-      // ************************************************************
-      // router.replace('/home'); // Assumindo que criaste uma rota chamada 'home'
-      
+
+      router.replace("/(home)/home");
+
     } catch (error: any) {
-      // 4. Tratamento de erros (senha errada, email não existe, etc)
-      console.error(error);
+
       let errorMessage = 'Ocorreu um erro ao fazer login.';
 
       if (error.code === 'auth/invalid-email') {
@@ -72,17 +62,19 @@ export default function Login() {
     }
   };
 
-  // Função para navegar para o cadastro
   const handleGoToSignUp = () => {
-    // Usamos o router para empurrar a rota '/signup' para a pilha de navegação
-    router.push('/singup'); 
+    router.push('./signup'); 
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Acesso ao Sistema</Text>
+    <LinearGradient
+      colors={['#8b83e4', '#763779']} 
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+      <Text style={styles.title}>Fazer login</Text>
 
-      {/* Campo de Email */}
       <TextInput
         style={styles.input}
         placeholder="Digite o seu email"
@@ -92,44 +84,46 @@ export default function Login() {
         autoCapitalize="none"
       />
 
-      {/* Campo de Senha */}
       <TextInput
         style={styles.input}
         placeholder="Digite a sua senha"
         value={password}
         onChangeText={setPassword}
-        secureTextEntry={true}
+        secureTextEntry
       />
 
-      {/* Botão de Login ou Indicador de Carregamento */}
       {loading ? (
         <ActivityIndicator size="large" color="#0000ff" />
       ) : (
-        <Button title="Entrar" onPress={handleLogin} />
+        <TouchableOpacity style={styles.btnLogin} onPress={handleLogin}>
+          <Text style={styles.btnLoginText}>Entrar</Text>
+        </TouchableOpacity>
       )}
 
-      {/* NOVO CÓDIGO: Botão para ir para a tela de Cadastro */}
       <View style={{ marginTop: 20 }}>
-        <Text style={{ textAlign: 'center', marginBottom: 5 }}>Ainda não tem uma conta?</Text>
+        
+
         <TouchableOpacity onPress={handleGoToSignUp}>
-          <Text style={{ color: 'blue', textAlign: 'center', fontWeight: 'bold' }}>
+          <Text style={{color: 'white', textAlign: 'center', marginBottom: 5 }}>
+          Ainda não tem uma conta?
+        </Text>
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold' }}>
             Criar conta agora
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
-// Estilos simples para organizar a tela
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#f5f5f5',
   },
   title: {
+    color:'#fff',
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 20,
@@ -139,9 +133,24 @@ const styles = StyleSheet.create({
     height: 50,
     borderColor: '#ccc',
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 20,
     marginBottom: 15,
     paddingHorizontal: 10,
     backgroundColor: '#fff',
   },
+  btnLogin: {
+  
+  paddingVertical: 14,
+  borderRadius: 20,
+  alignItems: 'center',
+  marginTop: 10,
+  borderWidth: 2,               // ← TAMANHO da borda
+  borderColor: '#ffffffff', 
+},
+
+btnLoginText: {
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: 'bold',
+},
 });
