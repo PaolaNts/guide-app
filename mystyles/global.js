@@ -8,7 +8,6 @@ input: {
     height: 40,
     borderColor: 'white',
     borderBottomWidth: 2,
-    marginBottom: 15,
     paddingHorizontal: 10,
     backgroundColor: 'transparent',
     
