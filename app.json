@@ -9,7 +9,13 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Precisamos da câmera para gravar vídeos.",
+        "NSPhotoLibraryUsageDescription": "Precisamos acessar sua galeria para escolher vídeos.",
+        "NSMicrophoneUsageDescription": "Precisamos do microfone para gravar vídeos."
+        }
+          
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +25,12 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_VIDEO",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",

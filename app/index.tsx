@@ -1,32 +1,33 @@
-import { useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { useEffect } from "react"
+import { View, ActivityIndicator } from "react-native"
+import AsyncStorage from "@react-native-async-storage/async-storage"
+import { router } from "expo-router"
 
 export default function Index() {
   useEffect(() => {
-    async function checkAuth() {
-      const token = await AsyncStorage.getItem("token");
-      const hasProfile = await AsyncStorage.getItem("hasProfile");
+    const checkFlow = async () => {
+      const userId = await AsyncStorage.getItem("userId")
 
-      if (!token) {
-        router.replace("/login");
-        return;
+      if (!userId) {
+        router.replace("/login")
+        return
       }
 
+      const hasProfile = await AsyncStorage.getItem(`hasProfile:${userId}`)
+
       if (hasProfile === "true") {
-        router.replace("/neew");
+        router.replace("/(tabs)/home")
       } else {
-        router.replace("/home");
+        router.replace("/custom/customizeprofile")
       }
     }
 
-    checkAuth();
-  }, []);
+    checkFlow()
+  }, [])
 
   return (
     <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
       <ActivityIndicator size="large" />
     </View>
-  );
+  )
 }
