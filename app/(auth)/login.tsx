@@ -13,8 +13,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { router } from 'expo-router';
 
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword,
+  sendEmailVerification
+} from 'firebase/auth';
+
 import { app } from '../../src/firebaseConfig'; 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 
 export default function Login() {
 
@@ -24,6 +31,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   const auth = getAuth(app);
+  
 
   const handleLogin = async () => {
     if (email === '' || password === '') {
@@ -36,11 +44,34 @@ export default function Login() {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      
-      Alert.alert('Sucesso!', `Bem-vindo de volta, ${user.email}`);
-      console.log('Login realizado com sucesso:', user.uid);
 
-      router.replace("/(home)/home");
+      if (!user.emailVerified) {
+       Alert.alert(
+          'Email não confirmado',
+          'Verifique sua caixa de entrada ou spam.',
+          [
+            {
+              text: 'Reenviar email',
+              onPress: async () => {
+                await sendEmailVerification(user)
+                Alert.alert('Pronto', 'Email reenviado.')
+              }
+            },
+            {
+              text: 'Cancelar',
+              style: 'cancel'
+            }
+          ]
+        )
+        return
+      }
+
+      await AsyncStorage.setItem("userId", user.uid);
+
+      Alert.alert('Sucesso!', `Bem-vindo de volta, ${user.email}`);
+      router.replace("/");
+
+
 
     } catch (error: any) {
 
@@ -60,6 +91,10 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoToForgotPassword = () => {
+    router.push('./forgotpassword'); 
   };
 
   const handleGoToSignUp = () => {
@@ -83,14 +118,19 @@ export default function Login() {
         keyboardType="email-address"
         autoCapitalize="none"
       />
-
+      
       <TextInput
         style={styles.input}
         placeholder="Digite a sua senha"
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
+        secureTextEntry 
       />
+       <TouchableOpacity onPress={handleGoToForgotPassword} style={styles.criarconta2}>
+          <Text style={{color: 'white', textAlign: 'center', fontWeight: 'bold', marginBottom:10}}>
+          Esqueci minha senha
+        </Text>
+        </TouchableOpacity>  
 
       {loading ? (
         <ActivityIndicator size="large" color="#0000ff" />
@@ -101,9 +141,11 @@ export default function Login() {
       )}
 
       <View style={{ marginTop: 20 }}>
+
         
 
-        <TouchableOpacity onPress={handleGoToSignUp}>
+
+        <TouchableOpacity onPress={handleGoToSignUp} style={styles.criarconta}>
           <Text style={{color: 'white', textAlign: 'center', marginBottom: 5 }}>
           Ainda não tem uma conta?
         </Text>
@@ -117,6 +159,14 @@ export default function Login() {
 }
 
 const styles = StyleSheet.create({
+  criarconta:{
+    flexDirection: 'row',
+    justifyContent:'center'
+  },
+    criarconta2:{
+    flexDirection: 'row',
+    
+  },
   container: {
     flex: 1,
     justifyContent: 'center',
@@ -130,13 +180,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   input: {
+    
+    color:'#fff',
     height: 50,
-    borderColor: '#ccc',
-    borderWidth: 1,
+    borderColor: '#fff',
+    borderWidth: 2,
     borderRadius: 20,
     marginBottom: 15,
     paddingHorizontal: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
   },
   btnLogin: {
   

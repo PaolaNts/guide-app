@@ -13,6 +13,11 @@ import {
 } from 'react-native';
 import { app } from '../../src/firebaseConfig';
 import { LinearGradient } from 'expo-linear-gradient';
+import { doc, setDoc } from 'firebase/firestore'
+import { db } from '../../src/firebaseConfig'
+import { sendEmailVerification } from 'firebase/auth'
+
+
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
@@ -37,10 +42,23 @@ export default function SignUp() {
     setLoading(true);
 
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+      const user = userCredential.user
 
-      Alert.alert('Sucesso', 'Conta criada com sucesso!');
-      router.back();
+      await sendEmailVerification(user)
+
+      await setDoc(doc(db, 'users', user.uid), {
+        email: user.email,
+        emailVerified: false,
+        createdAt: new Date(),
+      })
+
+      Alert.alert(
+        'Verifique seu email',
+        'Enviamos um link para confirmar sua conta.'
+      )
+
+      router.replace('/verify-email')
 
     } catch (error: any) {
       let errorMessage = 'Erro ao criar conta.';
@@ -105,7 +123,7 @@ export default function SignUp() {
           <ActivityIndicator size="large" color="#0000ff" />
         ) : (
           <TouchableOpacity style={styles.btnSignup} onPress={handleSignUp}>
-            <Text style={styles.btnSignupText}>Entrar</Text>
+            <Text style={styles.btnSignupText}>Confirmar</Text>
           </TouchableOpacity>
         )}
 
@@ -132,14 +150,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: 'center',
   },
-  input: {
+  input: {   
+    color:'#fff',
     height: 50,
-    borderColor: '#ccc',
-    borderWidth: 1,
+    borderColor: '#fff',
+    borderWidth: 2,
     borderRadius: 20,
     marginBottom: 15,
     paddingHorizontal: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
   },
     btnSignup: {
   
