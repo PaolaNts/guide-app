@@ -1,100 +1,117 @@
-import { router } from 'expo-router';
-import { createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
-import React, { useState } from 'react';
+import { router } from 'expo-router'
+import { createUserWithEmailAndPassword, getAuth, sendEmailVerification } from 'firebase/auth'
+import React, { useState } from 'react'
 import {
-    ActivityIndicator,
-    Alert,
-    Button,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from 'react-native';
-import { app } from '../../src/firebaseConfig';
-import { LinearGradient } from 'expo-linear-gradient';
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native'
+import { app, db } from '../../src/firebaseConfig'
+import { LinearGradient } from 'expo-linear-gradient'
 import { doc, setDoc } from 'firebase/firestore'
-import { db } from '../../src/firebaseConfig'
-import { sendEmailVerification } from 'firebase/auth'
-
 
 
 export default function SignUp() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');  // <-- ADICIONADO
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
 
-  const auth = getAuth(app);
+  const auth = getAuth(app)
+  const isStrongPassword = (password: string) => {
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
+  return regex.test(password)
+  }
+
 
   const handleSignUp = async () => {
-    if (email === '' || password === '' || confirmPassword === '') {
-      Alert.alert('Erro', 'Por favor, preencha todos os campos.');
-      return;
+    setError('')
+    setInfo('')
+
+    if (!email || !password || !confirmPassword) {
+      setError('Preencha todos os campos.')
+      return
     }
 
-    // 🔥 Validação das senhas iguais
     if (password !== confirmPassword) {
-      Alert.alert('Erro', 'As senhas não coincidem.');
-      return;
+      setError('As senhas não coincidem.')
+      return
     }
 
-    setLoading(true);
+    if (!isStrongPassword(password)) {
+      setError(
+        'A senha deve ter no mínimo 8 caracteres, com letra maiúscula, minúscula, número e símbolo.'
+      )
+      return
+    }
+
+    setLoading(true)
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
       const user = userCredential.user
 
-      await sendEmailVerification(user)
+      setInfo('Conta criada! Verifique seu email.')
 
-      await setDoc(doc(db, 'users', user.uid), {
+      sendEmailVerification(user).catch(() => {})
+
+      setDoc(doc(db, 'users', user.uid), {
         email: user.email,
         emailVerified: false,
         createdAt: new Date(),
-      })
-
-      Alert.alert(
-        'Verifique seu email',
-        'Enviamos um link para confirmar sua conta.'
-      )
+      }).catch(() => {})
 
       router.replace('/verify-email')
-
     } catch (error: any) {
-      let errorMessage = 'Erro ao criar conta.';
-      
       if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Este email já está em uso.';
+        setError('Este email já está em uso.')
       } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Formato de email inválido.';
+        setError('Email inválido.')
       } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'A senha deve ter pelo menos 6 caracteres.';
+        setError('Senha fraca.')
+      } else {
+        setError('Erro ao criar conta.')
       }
-
-      Alert.alert('Erro', errorMessage);
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-    const handleGoToLogin = () => {
-      router.push('./login'); 
-    };
+  const handleGoToLogin = () => {
+    router.push('./login')
+  }
+
   return (
     <LinearGradient
-      colors={['#763779', '#8b83e4']} 
+      colors={['#763779', '#8b83e4']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
       <View style={styles.container}>
-        <Text style={styles.title}>Criar Nova Conta</Text>
+        <Text style={styles.title}>CRIAR NOVA CONTA</Text>
 
+        {error !== '' && (
+          <Text style={{ color: '#ffb3b3', textAlign: 'center', marginBottom: 10 }}>
+            {error}
+          </Text>
+        )}
 
+        {info !== '' && (
+          <Text style={{ color: '#b3e5ff', textAlign: 'center', marginBottom: 10 }}>
+            {info}
+          </Text>
+        )}
 
         <TextInput
           style={styles.input}
           placeholder="Email"
+          placeholderTextColor="#ddd"
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
@@ -103,22 +120,25 @@ export default function SignUp() {
 
         <TextInput
           style={styles.input}
-          placeholder="Senha (mín. 6 caracteres)"
+          placeholder="Senha"
+          placeholderTextColor="#ddd"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(text) => {
+              setPassword(text)
+              if (error) setError('')
+            }}
           secureTextEntry
         />
 
-        {/* 🔥 Campo de confirmação de senha */}
         <TextInput
           style={styles.input}
           placeholder="Confirmar Senha"
+          placeholderTextColor="#ddd"
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry
         />
-        
-        
+
         {loading ? (
           <ActivityIndicator size="large" color="#0000ff" />
         ) : (
@@ -127,21 +147,24 @@ export default function SignUp() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity onPress={handleGoToLogin} style={{ marginTop: 20 }}>
-          <Text style={{ color: 'white', textAlign: 'center' }}>
-            Já tenho conta. Fazer Login.
+        <TouchableOpacity onPress={handleGoToLogin} style={{ marginTop: 20, flexDirection:'row', gap:5, justifyContent:'center'}}>
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight:'400' }}>
+            Já tem conta?
+          </Text>
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight:'600' }}>
+            Fazer Login
           </Text>
         </TouchableOpacity>
       </View>
     </LinearGradient>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
-    padding: 20,
+    padding: 10,
   },
   title: {
     color: '#fff',
@@ -149,9 +172,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+    fontFamily:'Inter'
   },
-  input: {   
-    color:'#fff',
+  input: {
+    color: '#fff',
     height: 50,
     borderColor: '#fff',
     borderWidth: 2,
@@ -160,18 +184,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: 'transparent',
   },
-    btnSignup: {
-  
-  paddingVertical: 14,
-  borderRadius: 20,
-  alignItems: 'center',
-  marginTop: 10,
-  borderWidth: 2,               // ← TAMANHO da borda
-  borderColor: '#ffffffff', 
-},
-btnSignupText: {
-  color: '#fff',
-  fontSize: 18,
-  fontWeight: 'bold',
-},
-});
+  btnSignup: {
+    paddingVertical: 14,
+    borderRadius: 20,
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 2,
+    borderColor: '#ffffffff',
+  },
+  btnSignupText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+})
