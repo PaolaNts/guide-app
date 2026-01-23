@@ -5,24 +5,17 @@ import { router } from "expo-router"
 
 export default function Index() {
   useEffect(() => {
-    const checkFlow = async () => {
+    const checkLogin = async () => {
       const userId = await AsyncStorage.getItem("userId")
 
-      if (!userId) {
-        router.replace("/login")
-        return
-      }
-
-      const hasProfile = await AsyncStorage.getItem(`hasProfile:${userId}`)
-
-      if (hasProfile === "true") {
+      if (userId) {
         router.replace("/(tabs)/home")
       } else {
-        router.replace("/custom/customizeprofile")
+        router.replace("/login")
       }
     }
 
-    checkFlow()
+    checkLogin()
   }, [])
 
   return (
