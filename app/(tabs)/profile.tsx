@@ -86,7 +86,7 @@ export default function Profile() {
 
         <View style={styles.Containerconfig}>
           <TouchableOpacity
-            onPress={() => router.push("/home?editProfile=1")}
+            onPress={() => router.push({ pathname: "/home", params: { editProfile: "1" } })}
             style={styles.btnprofile}
           >
             <Text style={styles.btntext}>Editar perfil</Text>

@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { getFirestore, doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { useLocalSearchParams, router } from "expo-router";
+
 import {
   View,
   Text,
@@ -12,10 +16,9 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signOut } from "firebase/auth";
 import { auth } from "../../src/firebaseConfig";
-import { useLocalSearchParams, router } from "expo-router";
 
-// Firestore
-import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
+
+
 
 
 const PROFILE_FLAG_KEY = "@profile_configured";
@@ -134,16 +137,44 @@ export default function HomeScreen() {
       setErrorMsg("Não foi possível sair agora.");
     }
   }
-  const params = useLocalSearchParams<{ editProfile?: string }>();
+ const params = useLocalSearchParams<{ editProfile?: string }>();
 
-  useEffect(() => {
-    if (params.editProfile === "1") {
-      setProfileModalVisible(true);
+  useFocusEffect(
+    useCallback(() => {
+      const user = auth.currentUser;
+      if (!user) return;
 
-      // opcional (recomendado): limpar o parâmetro pra não abrir sempre
-      router.setParams({ editProfile: undefined });
-    }
-  }, [params.editProfile]);
+      // 1) Primeira vez: se não configurou, abre
+      // 2) Edição: se veio editProfile=1, abre também
+      (async () => {
+        const configured = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
+
+        if (!configured || params.editProfile === "1") {
+          // (recomendado) preencher campos quando for editar
+          if (params.editProfile === "1") {
+            try {
+              const snap = await getDoc(doc(db, "users", user.uid));
+              if (snap.exists()) {
+                const data = snap.data();
+                setFullName(String(data.fullName ?? ""));
+                setSelectedAreas((data.tourismAreas ?? []) as TourismArea[]);
+              }
+            } catch {
+              // se falhar, abre mesmo assim
+            }
+          }
+
+          setProfileModalVisible(true);
+
+          // limpa o param pra não ficar abrindo sempre
+          if (params.editProfile === "1") {
+            router.setParams({ editProfile: undefined });
+          }
+        }
+      })();
+    }, [params.editProfile, db])
+  );
+
 
   return (
     <View style={styles.container}>

@@ -17,6 +17,8 @@ import {
   doc,
   query,
   orderBy,
+  addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "@/src/firebaseConfig";
@@ -43,6 +45,13 @@ export default function Routes() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [actionRoute, setActionRoute] = useState<Route | null>(null);
+  const [cloning, setCloning] = useState(false);
+
+  function openActions(route: Route) {
+    setActionRoute(route);
+  }
 
   function getBestTitle(route: Route) {
     const t = route.title?.trim();
@@ -80,8 +89,8 @@ export default function Routes() {
       q,
       (snapshot) => {
         const data = snapshot.docs.map((d) => ({
-          id: d.id,
           ...(d.data() as Omit<Route, "id">),
+          id: d.id, // ✅ por último: garante que não será sobrescrito por um "id" salvo no doc
         }));
         setRoutes(data);
         setLoading(false);
@@ -93,11 +102,41 @@ export default function Routes() {
   }, []);
 
   function handleEdit(id: string) {
-    router.push({
-      pathname: "../routes/edit",
-      params: { id },
-    });
+    router.push({ pathname: "/routes/edit", params: { routeId: id } });
   }
+
+function handleView(id: string) {
+  setActionRoute(null);
+    router.push({ pathname: "/routes/view", params: { routeId: id } });
+  }
+
+  async function handleClone(route: Route) {
+    const user = getAuth().currentUser;
+    if (!user) return;
+
+    try {
+      setActionRoute(null);
+      setCloning(true);
+
+      const { id: _oldId, ...rest } = route;
+      const title = getBestTitle(route);
+
+      const cloned: Omit<Route, "id"> = {
+        ...rest,
+        title: `${title} (cópia)`,
+        blocks: Array.isArray(route.blocks) ? route.blocks : [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const ref = await addDoc(collection(db, "users", user.uid, "routes"), cloned);
+
+      router.push({ pathname: "/routes/edit", params: { routeId: ref.id } });
+    } finally {
+      setCloning(false);
+    }
+  }
+
 
   async function confirmDelete() {
     const user = getAuth().currentUser;
@@ -211,7 +250,16 @@ export default function Routes() {
                   <Ionicons name="trash-outline" size={20} color="#dc2626" />
                 </TouchableOpacity>
 
-                <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                <TouchableOpacity
+                  onPress={(e: any) => {
+                    e?.stopPropagation?.();
+                    openActions(item);
+                  }}
+                  style={styles.actionBtn}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           );
@@ -248,6 +296,55 @@ export default function Routes() {
 
               <TouchableOpacity style={styles.deleteButton} onPress={confirmDelete}>
                 <Text style={styles.deleteText}>Excluir</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Action modal (chevron) */}
+      <Modal transparent visible={!!actionRoute} animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setActionRoute(null)}>
+          <Pressable style={styles.modalBox} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="ellipsis-horizontal" size={22} color="#111827" />
+              <Text style={styles.modalTitle}>Opções</Text>
+            </View>
+
+            <Text style={styles.modalText}>
+              {actionRoute ? getBestTitle(actionRoute) : ""}
+            </Text>
+
+            <View style={{ marginTop: 14, gap: 10 }}>
+              <TouchableOpacity
+                style={styles.optionBtn}
+                onPress={() => actionRoute && handleView(actionRoute.id)}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="eye-outline" size={18} color="#111827" />
+                <Text style={styles.optionText}>Visualizar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.optionBtn}
+                onPress={() => actionRoute && handleClone(actionRoute)}
+                activeOpacity={0.9}
+                disabled={cloning}
+              >
+                {cloning ? (
+                  <ActivityIndicator />
+                ) : (
+                  <Ionicons name="copy-outline" size={18} color="#111827" />
+                )}
+                <Text style={styles.optionText}>Clonar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.optionBtn, { justifyContent: "center" }]}
+                onPress={() => setActionRoute(null)}
+                activeOpacity={0.9}
+              >
+                <Text style={[styles.optionText, { color: "#374151" }]}>Cancelar</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -319,7 +416,7 @@ const styles = StyleSheet.create({
   cardLeft: {
     flex: 1,
     paddingRight: 8,
-    minWidth: 0, // ✅ importante p/ Android não cortar errado
+    minWidth: 0,
   },
   cardTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
   cardSubtitle: { marginTop: 4, color: "#6B7280", fontWeight: "600" },
@@ -400,4 +497,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   deleteText: { color: "#fff", fontWeight: "900" },
+
+  optionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+  },
+  optionText: {
+    fontWeight: "900",
+    color: "#111827",
+  },
 });
