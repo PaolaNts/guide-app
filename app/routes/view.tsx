@@ -8,6 +8,7 @@ import {
   FlatList,
   TouchableOpacity,
   Pressable,
+  TextStyle,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -19,6 +20,13 @@ type Block = {
   id: string;
   type: "title" | "text" | "description";
   content: string;
+  format?: {
+    align?: "left" | "center" | "right";
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    size?: "sm" | "md" | "lg";
+  };
 };
 
 type RouteType = {
@@ -33,16 +41,30 @@ type RouteType = {
 export default function RouteView() {
   const router = useRouter();
 
-  // ✅ padrão: routeId
   const { routeId } = useLocalSearchParams<{ routeId: string }>();
 
-  // ✅ às vezes vem string[]
   const routeIdStr = useMemo(() => {
     return Array.isArray(routeId) ? routeId[0] : routeId;
   }, [routeId]);
 
   const [route, setRoute] = useState<RouteType | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // ✅ aplica o format do Firestore (item.format)
+  function styleFromFormat(item: Block): TextStyle {
+    const f = item.format;
+
+    const fontSize =
+      f?.size === "sm" ? 14 : f?.size === "lg" ? 20 : undefined; // md => deixa padrão do style base
+
+    return {
+      textAlign: f?.align ?? "left",
+      fontWeight: f?.bold ? "900" : undefined,
+      fontStyle: f?.italic ? "italic" : undefined,
+      textDecorationLine: f?.underline ? "underline" : undefined,
+      fontSize,
+    };
+  }
 
   function getBestTitle(r: RouteType) {
     const t = r.title?.trim();
@@ -155,15 +177,17 @@ export default function RouteView() {
           contentContainerStyle={{ paddingBottom: 14 }}
           ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
           renderItem={({ item }) => {
+            const inline = styleFromFormat(item);
+
             if (item.type === "title") {
-              return <Text style={styles.readTitle}>{item.content}</Text>;
+              return <Text style={[styles.readTitle, inline]}>{item.content}</Text>;
             }
 
             if (item.type === "description") {
-              return <Text style={styles.readDescription}>{item.content}</Text>;
+              return <Text style={[styles.readDescription, inline]}>{item.content}</Text>;
             }
 
-            return <Text style={styles.readText}>{item.content}</Text>;
+            return <Text style={[styles.readText, inline]}>{item.content}</Text>;
           }}
         />
       </View>
