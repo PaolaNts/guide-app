@@ -1,9 +1,10 @@
-// src/components/BlockEditorItem.tsx
-import React, { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, TextInput, Modal, Pressable } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Video, Audio } from "expo-av";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import Slider from "@react-native-community/slider";
 
-export type BlockType = "title" | "text" | "description";
+export type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
 export type Align = "left" | "center" | "right" | "justify";
 export type FontSize = "sm" | "md" | "lg";
 
@@ -56,7 +57,6 @@ export default function BlockEditorItem({
   const size: FontSize = block.format?.size ?? "md";
 
   const alignIcon = useMemo(() => {
-    // ícones do MaterialCommunityIcons
     switch (align) {
       case "center":
         return "format-align-center";
@@ -77,7 +77,7 @@ export default function BlockEditorItem({
     block.type === "description" && styles.descriptionInput,
     sizeStyle,
     {
-      textAlign: align === "justify" ? "left" : align, // RN não justifica perfeito
+      textAlign: align === "justify" ? "left" : align,
       fontWeight: bold ? "800" : "400",
       fontStyle: italic ? "italic" : "normal",
       textDecorationLine: underline ? "underline" : "none",
@@ -85,42 +85,223 @@ export default function BlockEditorItem({
     } as any,
   ];
 
-  return (
-    <View style={styles.block}>
-      <View style={styles.blockHeader}>
-        <View style={styles.moveButtons}>
-          <TouchableOpacity
-            onPress={() => onMove(index, "up")}
-            disabled={isFirst}
-            style={{ opacity: isFirst ? 0.35 : 1 }}
-          >
-            <Ionicons name="chevron-up" size={20} />
-          </TouchableOpacity>
+  // =========================
+  // AUDIO PLAYER (expo-av)
+  // =========================
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [positionMillis, setPositionMillis] = useState(0);
+  const [durationMillis, setDurationMillis] = useState(1);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
-          <TouchableOpacity
-            onPress={() => onMove(index, "down")}
-            disabled={isLast}
-            style={{ opacity: isLast ? 0.35 : 1 }}
-          >
-            <Ionicons name="chevron-down" size={20} />
-          </TouchableOpacity>
-        </View>
+  const audioUri =
+    block.type === "audio" ? (typeof block.content === "string" ? block.content : "") : "";
 
-        <View style={styles.inlineToolbar}>
-          <TouchableOpacity style={styles.toolBtn} onPress={() => setShowAlign(true)} activeOpacity={0.85}>
-            <MaterialCommunityIcons name={alignIcon as any} size={18} color="#111827" />
-          </TouchableOpacity>
+  const fmtTime = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
 
-          <TouchableOpacity style={styles.toolBtn} onPress={() => setShowStyle(true)} activeOpacity={0.85}>
-            <MaterialCommunityIcons name="format-text" size={18} color="#111827" />
-          </TouchableOpacity>
+  async function unloadSound() {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+    } catch {}
+  }
 
-          <TouchableOpacity onPress={() => onRemove(block.id)} activeOpacity={0.85}>
-            <Ionicons name="trash-outline" size={20} color="#EF4444" />
-          </TouchableOpacity>
-        </View>
+  async function ensureSoundLoaded() {
+    if (soundRef.current) return;
+    if (!audioUri) return;
+
+    setIsLoadingAudio(true);
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+
+    const { sound } = await Audio.Sound.createAsync(
+      { uri: audioUri },
+      { shouldPlay: false, progressUpdateIntervalMillis: 250 }
+    );
+
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (!status.isLoaded) return;
+
+      setIsPlaying(status.isPlaying);
+      setPositionMillis(status.positionMillis ?? 0);
+      setDurationMillis(status.durationMillis ?? 1);
+
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setPositionMillis(0);
+      }
+    });
+
+    soundRef.current = sound;
+    setIsLoadingAudio(false);
+  }
+
+  async function togglePlay() {
+    await ensureSoundLoaded();
+    const s = soundRef.current;
+    if (!s) return;
+
+    const status = await s.getStatusAsync();
+    if (!status.isLoaded) return;
+
+    if (status.isPlaying) await s.pauseAsync();
+    else await s.playAsync();
+  }
+
+  async function seekTo(ratio: number) {
+    const s = soundRef.current;
+    if (!s) return;
+    const newPos = Math.floor(ratio * (durationMillis || 1));
+    await s.setPositionAsync(newPos);
+  }
+
+  // Se trocar o áudio, descarrega o anterior
+  useEffect(() => {
+    if (block.type !== "audio") return;
+    unloadSound();
+    setIsPlaying(false);
+    setPositionMillis(0);
+    setDurationMillis(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUri]);
+
+  // Cleanup ao desmontar
+  useEffect(() => {
+    return () => {
+      unloadSound();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ==========
+  // Header padrão (setas + lixeira)
+  // ==========
+  const BlockHeader = () => (
+    <View style={styles.blockHeader}>
+      <View style={styles.moveButtons}>
+        <TouchableOpacity
+          onPress={() => onMove(index, "up")}
+          disabled={isFirst}
+          style={{ opacity: isFirst ? 0.35 : 1 }}
+        >
+          <Ionicons name="chevron-up" size={20} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => onMove(index, "down")}
+          disabled={isLast}
+          style={{ opacity: isLast ? 0.35 : 1 }}
+        >
+          <Ionicons name="chevron-down" size={20} />
+        </TouchableOpacity>
       </View>
 
+      <View style={styles.inlineToolbar}>
+        {(block.type === "title" || block.type === "text" || block.type === "description") && (
+          <>
+            <TouchableOpacity style={styles.toolBtn} onPress={() => setShowAlign(true)}>
+              <MaterialCommunityIcons name={alignIcon as any} size={18} color="#111827" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => setShowStyle(true)}>
+              <MaterialCommunityIcons name="format-text" size={18} color="#111827" />
+            </TouchableOpacity>
+          </>
+        )}
+
+        <TouchableOpacity onPress={() => onRemove(block.id)}>
+          <Ionicons name="trash-outline" size={20} color="#EF4444" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  // ==========
+  // Conteúdo do bloco (varia por tipo)
+  // ==========
+  const renderContent = () => {
+    // IMAGE
+    if (block.type === "image") {
+      const uri = typeof block.content === "string" ? block.content : "";
+      const ok = uri.startsWith("http");
+
+      return ok ? (
+        <View style={styles.mediaWrap}>
+          <Image source={{ uri }} style={styles.image} resizeMode="cover" />
+        </View>
+      ) : (
+        <View style={styles.invalidBox}>
+          <Text style={styles.invalidText}>Imagem inválida</Text>
+        </View>
+      );
+    }
+
+    // VIDEO
+    if (block.type === "video") {
+      const uri = typeof block.content === "string" ? block.content : "";
+      const ok = uri.startsWith("http");
+
+      return ok ? (
+        <View style={styles.mediaWrap}>
+          <Video source={{ uri }} style={styles.video} useNativeControls resizeMode={"contain" as any} />
+        </View>
+      ) : (
+        <View style={styles.invalidBox}>
+          <Text style={styles.invalidText}>Vídeo inválido</Text>
+        </View>
+      );
+    }
+
+    // AUDIO (player completo)
+    if (block.type === "audio") {
+      const uri = audioUri;
+      const ok = !!uri && (uri.startsWith("http") || uri.startsWith("file:"));
+
+      if (!ok) {
+        return (
+          <View style={styles.invalidBox}>
+            <Text style={styles.invalidText}>Áudio inválido</Text>
+          </View>
+        );
+      }
+
+      const ratio = Math.min(1, Math.max(0, positionMillis / (durationMillis || 1)));
+
+      return (
+        <View style={styles.audioPlayer}>
+          <TouchableOpacity style={styles.audioPlayBtn} onPress={togglePlay} disabled={isLoadingAudio}>
+            <Ionicons name={isPlaying ? "pause" : "play"} size={20} color="#111827" />
+          </TouchableOpacity>
+
+          <View style={{ flex: 1 }}>
+            <Slider value={ratio} onSlidingComplete={seekTo} minimumValue={0} maximumValue={1} />
+
+            <View style={styles.audioTimes}>
+              <Text style={styles.audioTimeText}>{fmtTime(positionMillis)}</Text>
+              <Text style={styles.audioTimeText}>{fmtTime(durationMillis)}</Text>
+            </View>
+          </View>
+
+          <Ionicons name="mic-outline" size={18} color="#111827" />
+        </View>
+      );
+    }
+
+    // TEXT BLOCKS
+    return (
       <TextInput
         placeholder={placeholder}
         value={block.content}
@@ -128,144 +309,16 @@ export default function BlockEditorItem({
         style={inputStyle}
         multiline
       />
+    );
+  };
 
-      {/* MENU: Alinhamento */}
-      <Modal transparent visible={showAlign} animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowAlign(false)}>
-          <Pressable style={styles.modalBox} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Alinhamento</Text>
-
-            <View style={styles.modalGrid}>
-              <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => {
-                  onUpdateFormat(block.id, { align: "left" });
-                  setShowAlign(false);
-                }}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-align-left" size={20} color="#111827" />
-                <Text style={styles.modalBtnText}>Esquerda</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => {
-                  onUpdateFormat(block.id, { align: "center" });
-                  setShowAlign(false);
-                }}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-align-center" size={20} color="#111827" />
-                <Text style={styles.modalBtnText}>Centro</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => {
-                  onUpdateFormat(block.id, { align: "right" });
-                  setShowAlign(false);
-                }}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-align-right" size={20} color="#111827" />
-                <Text style={styles.modalBtnText}>Direita</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => {
-                  onUpdateFormat(block.id, { align: "justify" });
-                  setShowAlign(false);
-                }}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-align-justify" size={20} color="#111827" />
-                <Text style={styles.modalBtnText}>Justificar</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.modalBtn, { justifyContent: "center", marginTop: 12 }]}
-              onPress={() => setShowAlign(false)}
-              activeOpacity={0.9}
-            >
-              <Text style={[styles.modalBtnText, { color: "#374151" }]}>Fechar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* MENU: Estilo */}
-      <Modal transparent visible={showStyle} animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowStyle(false)}>
-          <Pressable style={styles.modalBox} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Estilo</Text>
-
-            <View style={styles.toggleRow}>
-              <TouchableOpacity
-                style={styles.toggleBtn}
-                onPress={() => onUpdateFormat(block.id, { bold: !bold })}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-bold" size={20} color="#111827" />
-                <Text style={styles.toggleText}>Negrito</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toggleBtn}
-                onPress={() => onUpdateFormat(block.id, { italic: !italic })}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-italic" size={20} color="#111827" />
-                <Text style={styles.toggleText}>Itálico</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.toggleBtn}
-                onPress={() => onUpdateFormat(block.id, { underline: !underline })}
-                activeOpacity={0.9}
-              >
-                <MaterialCommunityIcons name="format-underline" size={20} color="#111827" />
-                <Text style={styles.toggleText}>Subl.</Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.sectionLabel}>Tamanho</Text>
-            <View style={styles.sizeRow}>
-              <TouchableOpacity
-                style={styles.sizeBtn}
-                onPress={() => onUpdateFormat(block.id, { size: "sm" })}
-                activeOpacity={0.9}
-              >
-                <Text style={[styles.sizeBtnText, { fontSize: 12 }]}>Peq.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.sizeBtn}
-                onPress={() => onUpdateFormat(block.id, { size: "md" })}
-                activeOpacity={0.9}
-              >
-                <Text style={[styles.sizeBtnText, { fontSize: 14 }]}>Méd.</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.sizeBtn}
-                onPress={() => onUpdateFormat(block.id, { size: "lg" })}
-                activeOpacity={0.9}
-              >
-                <Text style={[styles.sizeBtnText, { fontSize: 16 }]}>Grd.</Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={[styles.modalBtn, { justifyContent: "center", marginTop: 12 }]}
-              onPress={() => setShowStyle(false)}
-              activeOpacity={0.9}
-            >
-              <Text style={[styles.modalBtnText, { color: "#374151" }]}>Fechar</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
+  // ==========
+  // Wrapper padrão
+  // ==========
+  return (
+    <View style={styles.block}>
+      <BlockHeader />
+      {renderContent()}
     </View>
   );
 }
@@ -280,12 +333,12 @@ const styles = StyleSheet.create({
   blockHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 6,
+    marginBottom: 10,
     alignItems: "center",
   },
   moveButtons: { flexDirection: "row", gap: 10 },
-
   inlineToolbar: { flexDirection: "row", alignItems: "center", gap: 10 },
+
   toolBtn: {
     width: 34,
     height: 34,
@@ -297,6 +350,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  // TEXT
   input: { fontSize: 16, color: "#121213" },
   titleInput: { fontSize: 20, fontWeight: "600", color: "#000000" },
   descriptionInput: { color: "#6B7280" },
@@ -305,64 +359,61 @@ const styles = StyleSheet.create({
   sizeMd: { fontSize: 16 },
   sizeLg: { fontSize: 18 },
 
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 18,
+  // MEDIA
+  mediaWrap: {
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#E5E7EB",
   },
-  modalBox: {
+
+  image: {
     width: "100%",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
+    height: 400,
+  },
+
+  video: {
+    width: "100%",
+    height: 220,
+  },
+
+  invalidBox: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  modalTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  invalidText: { color: "#6B7280", fontWeight: "600" },
 
-  modalGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
-  modalBtn: {
+  // AUDIO PLAYER
+  audioPlayer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    flexGrow: 1,
-  },
-  modalBtnText: { fontWeight: "900", color: "#111827" },
-
-  toggleRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  toggleBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  toggleText: { fontWeight: "900", color: "#111827" },
-
-  sectionLabel: { marginTop: 12, marginBottom: 8, color: "#6B7280", fontWeight: "800" },
-  sizeRow: { flexDirection: "row", gap: 10 },
-  sizeBtn: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    padding: 12,
+    borderRadius: 12,
     backgroundColor: "#FFFFFF",
-    paddingVertical: 12,
-    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  audioPlayBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
-  sizeBtnText: { fontWeight: "900", color: "#111827" },
+  audioTimes: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  audioTimeText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
 });

@@ -15,6 +15,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/src/firebaseConfig";
+import { shareRoute } from "../compartilhar/shareRoute";
 
 type Block = {
   id: string;
@@ -42,13 +43,27 @@ export default function RouteView() {
   const router = useRouter();
 
   const { routeId } = useLocalSearchParams<{ routeId: string }>();
-
+  
   const routeIdStr = useMemo(() => {
     return Array.isArray(routeId) ? routeId[0] : routeId;
   }, [routeId]);
 
   const [route, setRoute] = useState<RouteType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  async function handleShare() {
+    if (!route) return;
+
+    await shareRoute(route);
+
+    setCopied(true);
+
+    setTimeout(() => {
+      setCopied(false);
+    }, 2000); // some depois de 2 segundos
+  }
+
 
   // ✅ aplica o format do Firestore (item.format)
   function styleFromFormat(item: Block): TextStyle {
@@ -162,7 +177,21 @@ export default function RouteView() {
         >
           <Ionicons name="create-outline" size={20} color="#2563eb" />
         </TouchableOpacity>
+        
+        <TouchableOpacity
+          onPress={handleShare}
+          style={styles.iconBtn}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="share-outline" size={20} color="#111827" />
+        </TouchableOpacity>
+
       </View>
+      {copied && (
+          <View style={styles.toast}>
+            <Text style={styles.toastText}>Link copiado</Text>
+          </View>
+        )}
 
       {/* Conteúdo em modo leitura */}
       <View style={styles.paper}>
@@ -296,4 +325,19 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   hintText: { color: "#6B7280", fontWeight: "700", fontSize: 12 },
+  toast: {
+  margin:10,
+  bottom: 10,
+  backgroundColor: "#1118273b",
+  paddingVertical: 12,
+  borderRadius: 12,
+  justifyContent:'center',
+  alignItems: "center",
+},
+
+toastText: {
+  color: "#fff",
+  fontWeight: "800",
+},
+
 });

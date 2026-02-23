@@ -90,7 +90,7 @@ export default function Routes() {
       (snapshot) => {
         const data = snapshot.docs.map((d) => ({
           ...(d.data() as Omit<Route, "id">),
-          id: d.id, // ✅ por último: garante que não será sobrescrito por um "id" salvo no doc
+          id: d.id, // ✅ garante o id do doc
         }));
         setRoutes(data);
         setLoading(false);
@@ -101,13 +101,14 @@ export default function Routes() {
     return () => unsub();
   }, []);
 
+  // ✅ EDITAR -> agora passa { id } (o create.tsx vai ler id)
   function handleEdit(id: string) {
-    router.push({ pathname: "/routes/edit", params: { routeId: id } });
+    router.push({ pathname: "/routes/create", params: { id } });
   }
 
-function handleView(id: string) {
-  setActionRoute(null);
-    router.push({ pathname: "/routes/view", params: { routeId: id } });
+  function handleView(id: string) {
+    setActionRoute(null);
+    router.push({ pathname: "/routes/view", params: { routeId: id } }); // mantém como está (se seu view usa routeId)
   }
 
   async function handleClone(route: Route) {
@@ -131,12 +132,12 @@ function handleView(id: string) {
 
       const ref = await addDoc(collection(db, "users", user.uid, "routes"), cloned);
 
-      router.push({ pathname: "/routes/edit", params: { routeId: ref.id } });
+      // ✅ depois de clonar abre o MESMO create.tsx em modo edição
+      router.push({ pathname: "/routes/create", params: { id: ref.id } });
     } finally {
       setCloning(false);
     }
   }
-
 
   async function confirmDelete() {
     const user = getAuth().currentUser;
@@ -209,7 +210,7 @@ function handleView(id: string) {
               style={styles.card}
               activeOpacity={0.9}
             >
-              {/* ESQUERDA: textos */}
+              {/* ESQUERDA */}
               <View style={styles.cardLeft}>
                 <Text style={styles.cardTitle} numberOfLines={2}>
                   {title}
@@ -232,7 +233,7 @@ function handleView(id: string) {
                 </View>
               </View>
 
-              {/* DIREITA: ações */}
+              {/* DIREITA */}
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   onPress={() => handleEdit(item.id)}

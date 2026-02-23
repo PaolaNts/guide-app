@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,23 +12,46 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  serverTimestamp,
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "@/src/firebaseConfig";
 import { LinearGradient } from "expo-linear-gradient";
 import BlockEditorItem, { Block, BlockType } from "../../components/BlockEditorItem";
 
-
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import { uploadMediaCloudinary } from "@/src/services/uploadMediaCloudinary";
 
 function makeId() {
   // @ts-ignore
   return global?.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
 
+type RouteDoc = {
+  title?: string;
+  clientName?: string;
+  preview?: string;
+  blocks?: Block[];
+  createdAt?: any;
+  updatedAt?: any;
+};
+
 export default function CreateRoute() {
   const router = useRouter();
+
+  // ✅ se vier id, é edição
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const isEdit = !!id;
 
   const [routeTitle, setRouteTitle] = useState("");
   const [clientName, setClientName] = useState("");
@@ -37,9 +60,75 @@ export default function CreateRoute() {
   const [showOptions, setShowOptions] = useState(false);
 
   const [msg, setMsg] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
+  // ✅ separa os carregamentos
+  const [isSaving, setIsSaving] = useState(false); // salvar (Firestore)
+  const [isUploading, setIsUploading] = useState(false); // upload mídia
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false); // carregar rota p/ editar
 
+  // ✅ modal excluir
+ 
+
+  async function ensureLogged() {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (!user) {
+      setMsg("Você precisa estar logada.");
+      return null;
+    }
+    return user;
+  }
+
+  // ✅ se for editar, carrega do Firestore
+  useEffect(() => {
+    if (!isEdit) return;
+
+    const run = async () => {
+      setMsg(null);
+      const user = await ensureLogged();
+      if (!user) return;
+
+      try {
+        setIsLoadingRoute(true);
+
+        const ref = doc(db, "users", user.uid, "routes", String(id));
+        const snap = await getDoc(ref);
+
+        if (!snap.exists()) {
+          setMsg("Rota não encontrada.");
+          return;
+        }
+
+        const data = snap.data() as RouteDoc;
+
+        setRouteTitle(data.title ?? "");
+        setClientName(data.clientName ?? "");
+
+        const safeBlocks = (data.blocks ?? []).map((b) => ({
+          id: b.id ?? makeId(),
+          type: b.type,
+          content: b.content ?? "",
+          format: {
+            align: b.format?.align ?? "left",
+            bold: !!b.format?.bold,
+            italic: !!b.format?.italic,
+            underline: !!b.format?.underline,
+            size: b.format?.size ?? "md",
+          },
+        }));
+
+        setBlocks(safeBlocks);
+      } catch (e) {
+        console.log("Erro ao carregar rota:", e);
+        setMsg("Não foi possível carregar a rota agora.");
+      } finally {
+        setIsLoadingRoute(false);
+      }
+    };
+
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   function addBlock(type: BlockType) {
     setMsg(null);
@@ -73,16 +162,11 @@ export default function CreateRoute() {
     });
   }
 
-
-  
-
- 
-
   const normalizedBlocks = useMemo(() => {
     return blocks
       .map((b) => ({
         ...b,
-        content: b.content.trim(),
+        content: (b.content ?? "").trim(),
         format: {
           align: b.format?.align ?? "left",
           bold: !!b.format?.bold,
@@ -95,19 +179,20 @@ export default function CreateRoute() {
   }, [blocks]);
 
   const canSave = useMemo(() => {
-    return routeTitle.trim().length >= 3 && normalizedBlocks.length > 0 && !isSaving;
-  }, [routeTitle, normalizedBlocks.length, isSaving]);
+    return (
+      routeTitle.trim().length >= 3 &&
+      normalizedBlocks.length > 0 &&
+      !isSaving &&
+      !isUploading &&
+      !isLoadingRoute
+    );
+  }, [routeTitle, normalizedBlocks.length, isSaving, isUploading, isLoadingRoute]);
 
   async function saveRoute() {
     setMsg(null);
 
-    const auth = getAuth();
-    const user = auth.currentUser;
-
-    if (!user) {
-      setMsg("Você precisa estar logada para salvar.");
-      return;
-    }
+    const user = await ensureLogged();
+    if (!user) return;
 
     if (routeTitle.trim().length < 3) {
       setMsg("Escolha um título para a rota (mín. 3 caracteres).");
@@ -125,14 +210,25 @@ export default function CreateRoute() {
       const firstTitle = normalizedBlocks.find((b) => b.type === "title")?.content;
       const preview = firstTitle ?? normalizedBlocks[0]?.content.slice(0, 80) ?? "";
 
-      await addDoc(collection(db, "users", user.uid, "routes"), {
-        title: routeTitle.trim(),
-        clientName: clientName.trim(),
-        preview,
-        blocks: normalizedBlocks,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      if (!isEdit) {
+        await addDoc(collection(db, "users", user.uid, "routes"), {
+          title: routeTitle.trim(),
+          clientName: clientName.trim(),
+          preview,
+          blocks: normalizedBlocks,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        const ref = doc(db, "users", user.uid, "routes", String(id));
+        await updateDoc(ref, {
+          title: routeTitle.trim(),
+          clientName: clientName.trim(),
+          preview,
+          blocks: normalizedBlocks,
+          updatedAt: serverTimestamp(),
+        });
+      }
 
       router.back();
     } catch (error) {
@@ -143,11 +239,132 @@ export default function CreateRoute() {
     }
   }
 
+
+
+ 
+
+  function pushMediaBlock(type: "image" | "video" | "audio", url: string) {
+    setBlocks((prev) => [
+      ...prev,
+      {
+        id: makeId(),
+        type,
+        content: url,
+        format: { align: "left", bold: false, italic: false, underline: false, size: "md" },
+      },
+    ]);
+  }
+
+  async function addImageBlock() {
+    setMsg(null);
+    const user = await ensureLogged();
+    if (!user) return;
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setMsg("Permissão de galeria negada.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+      });
+
+      if (result.canceled) return;
+
+      const uri = result.assets[0].uri;
+
+      setIsUploading(true);
+
+      const { url } = await uploadMediaCloudinary({
+        uri,
+        kind: "photos",
+      });
+
+      pushMediaBlock("image", url);
+    } catch (e: any) {
+      console.log("Erro upload imagem:", e);
+      setMsg(e?.message ? String(e.message) : "Erro ao enviar imagem.");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function addVideoBlock() {
+    setMsg(null);
+    const user = await ensureLogged();
+    if (!user) return;
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setMsg("Permissão de galeria negada.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        quality: 1,
+      });
+
+      if (result.canceled) return;
+
+      const uri = result.assets[0].uri;
+
+      setIsUploading(true);
+
+      const { url } = await uploadMediaCloudinary({
+        uri,
+        kind: "videos",
+      });
+
+      pushMediaBlock("video", url);
+      setShowOptions(false);
+    } catch (e) {
+      console.log("Erro upload video:", e);
+      setMsg("Erro ao enviar vídeo.");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  async function addAudioBlock() {
+    setMsg(null);
+    const user = await ensureLogged();
+    if (!user) return;
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) return;
+
+      const uri = result.assets[0].uri;
+
+      setIsUploading(true);
+
+      const { url } = await uploadMediaCloudinary({
+        uri,
+        kind: "audios",
+      });
+
+      pushMediaBlock("audio", url);
+      setShowOptions(false);
+    } catch (e) {
+      console.log("Erro upload audio:", e);
+      setMsg("Erro ao enviar áudio.");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.container}>
         <LinearGradient
           colors={["#87a2eb9f", "#c581c960"]}
@@ -156,63 +373,80 @@ export default function CreateRoute() {
           style={styles.container2}
         >
           <View style={{ alignItems: "center", width: "95%" }}>
-            <Text style={styles.header}>NOVA ROTA</Text>
+            <Text style={styles.header}>{isEdit ? "EDITAR ROTA" : "NOVA ROTA"}</Text>
           </View>
 
           {msg && <Text style={styles.msg}>{msg}</Text>}
 
-          <Text style={styles.label}>Título da rota</Text>
-          <TextInput
-            value={routeTitle}
-            onChangeText={setRouteTitle}
-            placeholder="Ex.: Centro histórico + museus"
-            style={styles.routeTitleInput}
-            returnKeyType="done"
-          />
-
-          <Text style={styles.label}>Cliente</Text>
-          <TextInput
-            value={clientName}
-            onChangeText={setClientName}
-            placeholder="Ex.: Agência XPTO / Maria Silva"
-            style={styles.routeTitleInput}
-          />
-
-          <FlatList
-            data={blocks}
-            keyExtractor={(item) => item.id}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingBottom: 220 }}
-            ListEmptyComponent={
-              <View style={{ alignItems: "center" }}>
-                <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
-              </View>
-            }
-            renderItem={({ item, index }) => (
-              <BlockEditorItem
-                block={item}
-                index={index}
-                isFirst={index === 0}
-                isLast={index === blocks.length - 1}
-                onChangeContent={updateBlock}
-                onRemove={removeBlock}
-                onMove={moveBlock}
-                onUpdateFormat={(id, patch) =>
-                  setBlocks((prev) =>
-                    prev.map((b) =>
-                      b.id === id
-                        ? { ...b, format: { align: "left", bold: false, italic: false, underline: false, size: "md", ...b.format, ...patch } }
-                        : b
-                    )
-                  )
-                }
-
+          {isLoadingRoute ? (
+            <View style={{ marginTop: 14 }}>
+              <ActivityIndicator />
+            </View>
+          ) : (
+            <>
+              <Text style={styles.label}>Título da rota</Text>
+              <TextInput
+                value={routeTitle}
+                onChangeText={setRouteTitle}
+                placeholder="Ex.: Centro histórico + museus"
+                style={styles.routeTitleInput}
+                returnKeyType="done"
               />
-            )}
 
-          />
+              <Text style={styles.label}>Cliente</Text>
+              <TextInput
+                value={clientName}
+                onChangeText={setClientName}
+                placeholder="Ex.: Agência XPTO / Maria Silva"
+                style={styles.routeTitleInput}
+              />
 
-          {/* Action bar fixa (ícones) */}
+              <FlatList
+                data={blocks}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ paddingBottom: 260 }}
+                ListEmptyComponent={
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
+                  </View>
+                }
+                renderItem={({ item, index }) => (
+                  <BlockEditorItem
+                    block={item}
+                    index={index}
+                    isFirst={index === 0}
+                    isLast={index === blocks.length - 1}
+                    onChangeContent={updateBlock}
+                    onRemove={removeBlock}
+                    onMove={moveBlock}
+                    onUpdateFormat={(id, patch) =>
+                      setBlocks((prev) =>
+                        prev.map((b) =>
+                          b.id === id
+                            ? {
+                                ...b,
+                                format: {
+                                  align: "left",
+                                  bold: false,
+                                  italic: false,
+                                  underline: false,
+                                  size: "md",
+                                  ...b.format,
+                                  ...patch,
+                                },
+                              }
+                            : b
+                        )
+                      )
+                    }
+                  />
+                )}
+              />
+            </>
+          )}
+
+          {/* Action bar fixa */}
           <View style={styles.bottomDock}>
             <View style={styles.actionBar}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => addBlock("title")}>
@@ -230,10 +464,7 @@ export default function CreateRoute() {
                 <Text style={styles.actionLabel}>Descrição</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => setMsg("Opção de imagem (em breve).")}
-              >
+              <TouchableOpacity style={styles.actionBtn} onPress={addImageBlock}>
                 <Ionicons name="image-outline" size={22} />
                 <Text style={styles.actionLabel}>Imagem</Text>
               </TouchableOpacity>
@@ -255,11 +486,17 @@ export default function CreateRoute() {
               disabled={!canSave}
               activeOpacity={0.9}
             >
-              {isSaving ? <ActivityIndicator /> : <Text style={styles.saveText}>Salvar rota</Text>}
+              {isSaving || isUploading ? (
+                <ActivityIndicator />
+              ) : (
+                <Text style={styles.saveText}>{isEdit ? "Salvar alterações" : "Salvar rota"}</Text>
+              )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.back} onPress={() => router.back()} disabled={isSaving}>
-              <Text style={{ opacity: isSaving ? 0.5 : 1 }}>Voltar</Text>
+            
+
+            <TouchableOpacity style={styles.back} onPress={() => router.back()}>
+              <Text style={{ opacity: isSaving || isUploading ? 0.6 : 1 }}>Voltar</Text>
             </TouchableOpacity>
           </View>
 
@@ -290,6 +527,16 @@ export default function CreateRoute() {
                 >
                   <Ionicons name="pin-outline" size={20} />
                   <Text style={styles.sheetItemText}>Adicionar ponto no mapa</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={addAudioBlock}>
+                  <Ionicons name="mic-outline" size={20} />
+                  <Text style={styles.sheetItemText}>Áudio</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={addVideoBlock}>
+                  <Ionicons name="videocam-outline" size={20} />
+                  <Text style={styles.sheetItemText}>Vídeo</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -330,26 +577,6 @@ const styles = StyleSheet.create({
   msg: { color: "#B00020", marginBottom: 8 },
   empty: { color: "#6B7280", marginTop: 16 },
 
-  inlineToolbar: { flexDirection: "row", alignItems: "center", gap: 10 },
-  toolBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  input: { fontSize: 16, color: "#121213" },
-  titleInput: { fontSize: 20, fontWeight: "600", color: "#000000" },
-  descriptionInput: { color: "#6B7280" },
-
-  sizeSm: { fontSize: 13 },
-  sizeMd: { fontSize: 16 },
-  sizeLg: { fontSize: 18 },
-
   bottomDock: {
     position: "absolute",
     left: 16,
@@ -382,6 +609,15 @@ const styles = StyleSheet.create({
   saveDisabled: { opacity: 0.55 },
   saveText: { color: "#111111a6", textAlign: "center", fontWeight: "600" },
 
+  deleteBtn: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  deleteText: { color: "#B00020", fontWeight: "800" },
+
   back: { marginTop: 10, alignItems: "center" },
 
   sheetOverlay: {
@@ -412,5 +648,53 @@ const styles = StyleSheet.create({
   },
   sheetItemText: { fontSize: 15, fontWeight: "600" },
 
-
+  // ✅ confirmação excluir
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    padding: 18,
+  },
+  confirmCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+  },
+  confirmTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 6,
+    color: "#111827",
+  },
+  confirmText: {
+    fontSize: 14,
+    color: "#4B5563",
+    marginBottom: 14,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+  },
+  confirmBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    minWidth: 110,
+    alignItems: "center",
+  },
+  confirmCancel: {
+    backgroundColor: "#F3F4F6",
+  },
+  confirmDelete: {
+    backgroundColor: "#111827",
+  },
+  confirmCancelText: {
+    fontWeight: "800",
+    color: "#111827",
+  },
+  confirmDeleteText: {
+    fontWeight: "800",
+    color: "#fff",
+  },
 });
