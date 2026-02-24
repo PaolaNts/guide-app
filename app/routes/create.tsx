@@ -1,36 +1,36 @@
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  FlatList,
-  TextInput,
-  Modal,
-  Pressable,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { db } from "@/src/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { getAuth } from "firebase/auth";
 import {
   addDoc,
   collection,
-  serverTimestamp,
   doc,
   getDoc,
+  serverTimestamp,
   updateDoc,
-  deleteDoc,
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { db } from "@/src/firebaseConfig";
-import { LinearGradient } from "expo-linear-gradient";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import BlockEditorItem, { Block, BlockType } from "../../components/BlockEditorItem";
 
-import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
 import { uploadMediaCloudinary } from "@/src/services/uploadMediaCloudinary";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import DraggableFlatList from "react-native-draggable-flatlist";
 
 function makeId() {
   // @ts-ignore
@@ -53,8 +53,10 @@ export default function CreateRoute() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!id;
 
+  // ✅ agora esses dados NÃO ficam fixos na tela — só no modal antes de salvar
   const [routeTitle, setRouteTitle] = useState("");
   const [clientName, setClientName] = useState("");
+  const [metaOpen, setMetaOpen] = useState(false);
 
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [showOptions, setShowOptions] = useState(false);
@@ -65,9 +67,6 @@ export default function CreateRoute() {
   const [isSaving, setIsSaving] = useState(false); // salvar (Firestore)
   const [isUploading, setIsUploading] = useState(false); // upload mídia
   const [isLoadingRoute, setIsLoadingRoute] = useState(false); // carregar rota p/ editar
-
-  // ✅ modal excluir
- 
 
   async function ensureLogged() {
     const auth = getAuth();
@@ -178,15 +177,11 @@ export default function CreateRoute() {
       .filter((b) => b.content.length > 0);
   }, [blocks]);
 
+  // ✅ agora o salvar só depende de ter blocos e não estar ocupado
+  // (o título/cliente vão ser validados dentro do modal antes de chamar saveRoute)
   const canSave = useMemo(() => {
-    return (
-      routeTitle.trim().length >= 3 &&
-      normalizedBlocks.length > 0 &&
-      !isSaving &&
-      !isUploading &&
-      !isLoadingRoute
-    );
-  }, [routeTitle, normalizedBlocks.length, isSaving, isUploading, isLoadingRoute]);
+    return normalizedBlocks.length > 0 && !isSaving && !isUploading && !isLoadingRoute;
+  }, [normalizedBlocks.length, isSaving, isUploading, isLoadingRoute]);
 
   async function saveRoute() {
     setMsg(null);
@@ -238,10 +233,6 @@ export default function CreateRoute() {
       setIsSaving(false);
     }
   }
-
-
-
- 
 
   function pushMediaBlock(type: "image" | "video" | "audio", url: string) {
     setBlocks((prev) => [
@@ -363,19 +354,45 @@ export default function CreateRoute() {
     }
   }
 
+  const isBusy = isSaving || isUploading || isLoadingRoute;
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.container}>
+        {/* ✅ Top bar fixa (voltar + salvar) */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.topIconBtn}
+            onPress={() => router.back()}
+            disabled={isBusy}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="chevron-back" size={22} />
+          </TouchableOpacity>
+
+          <View style={{ alignItems: "center", flex: 1 }}>
+            <Text style={styles.header}>{isEdit ? "Editar" : "Criar"}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.topIconBtn, !canSave && styles.topIconBtnDisabled]}
+            onPress={() => {
+              setMsg(null);
+              setMetaOpen(true); // ✅ abre a "aba" pra digitar título/cliente antes de salvar
+            }}
+            disabled={!canSave}
+            activeOpacity={0.8}
+          >
+            {isSaving || isUploading ? <ActivityIndicator /> : <Ionicons name="save-outline" size={20} />}
+          </TouchableOpacity>
+        </View>
+
         <LinearGradient
           colors={["#87a2eb9f", "#c581c960"]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={styles.container2}
         >
-          <View style={{ alignItems: "center", width: "95%" }}>
-            <Text style={styles.header}>{isEdit ? "EDITAR ROTA" : "NOVA ROTA"}</Text>
-          </View>
-
           {msg && <Text style={styles.msg}>{msg}</Text>}
 
           {isLoadingRoute ? (
@@ -384,28 +401,13 @@ export default function CreateRoute() {
             </View>
           ) : (
             <>
-              <Text style={styles.label}>Título da rota</Text>
-              <TextInput
-                value={routeTitle}
-                onChangeText={setRouteTitle}
-                placeholder="Ex.: Centro histórico + museus"
-                style={styles.routeTitleInput}
-                returnKeyType="done"
-              />
-
-              <Text style={styles.label}>Cliente</Text>
-              <TextInput
-                value={clientName}
-                onChangeText={setClientName}
-                placeholder="Ex.: Agência XPTO / Maria Silva"
-                style={styles.routeTitleInput}
-              />
+              {/* ✅ inputs removidos daqui (ficam só no modal antes de salvar) */}
 
               <FlatList
                 data={blocks}
                 keyExtractor={(item) => item.id}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ paddingBottom: 260 }}
+                contentContainerStyle={{ paddingBottom: 170 }}
                 ListEmptyComponent={
                   <View style={{ alignItems: "center" }}>
                     <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
@@ -446,59 +448,70 @@ export default function CreateRoute() {
             </>
           )}
 
-          {/* Action bar fixa */}
+          {/* ✅ Bottom dock: fica só o "Mais" */}
           <View style={styles.bottomDock}>
             <View style={styles.actionBar}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => addBlock("title")}>
-                <Ionicons name="text-outline" size={22} />
-                <Text style={styles.actionLabel}>Título</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={() => addBlock("text")}>
-                <Ionicons name="document-text-outline" size={22} />
-                <Text style={styles.actionLabel}>Texto</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={() => addBlock("description")}>
-                <Ionicons name="reader-outline" size={22} />
-                <Text style={styles.actionLabel}>Descrição</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={addImageBlock}>
-                <Ionicons name="image-outline" size={22} />
-                <Text style={styles.actionLabel}>Imagem</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={() => setMsg("Opção de mapa (em breve).")}>
-                <Ionicons name="map-outline" size={22} />
-                <Text style={styles.actionLabel}>Mapa</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)}>
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)} disabled={isBusy}>
                 <Ionicons name="add-circle-outline" size={24} />
                 <Text style={styles.actionLabel}>Mais</Text>
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={[styles.save, !canSave && styles.saveDisabled]}
-              onPress={saveRoute}
-              disabled={!canSave}
-              activeOpacity={0.9}
-            >
-              {isSaving || isUploading ? (
-                <ActivityIndicator />
-              ) : (
-                <Text style={styles.saveText}>{isEdit ? "Salvar alterações" : "Salvar rota"}</Text>
-              )}
-            </TouchableOpacity>
-
-            
-
-            <TouchableOpacity style={styles.back} onPress={() => router.back()}>
-              <Text style={{ opacity: isSaving || isUploading ? 0.6 : 1 }}>Voltar</Text>
-            </TouchableOpacity>
           </View>
+
+          {/* ✅ Modal: Antes de salvar (Título + Cliente) */}
+          <Modal transparent visible={metaOpen} animationType="slide">
+            <Pressable style={styles.sheetOverlay} onPress={() => setMetaOpen(false)}>
+              <Pressable style={styles.sheet} onPress={() => {}}>
+                <View style={styles.sheetHandle} />
+                <Text style={styles.sheetTitle}>{isEdit ? "Dados da rota" : "Antes de salvar"}</Text>
+
+                <Text style={styles.label}>Título da rota</Text>
+                <TextInput
+                  value={routeTitle}
+                  onChangeText={setRouteTitle}
+                  placeholder="Ex.: Centro histórico + museus"
+                  style={styles.routeTitleInput}
+                  returnKeyType="next"
+                  autoFocus
+                />
+
+                <Text style={styles.label}>Cliente</Text>
+                <TextInput
+                  value={clientName}
+                  onChangeText={setClientName}
+                  placeholder="Ex.: Agência XPTO / Maria Silva"
+                  style={styles.routeTitleInput}
+                  returnKeyType="done"
+                />
+
+                <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                  <TouchableOpacity
+                    style={[styles.confirmBtn, styles.confirmCancel]}
+                    onPress={() => setMetaOpen(false)}
+                    disabled={isBusy}
+                  >
+                    <Text style={styles.confirmCancelText}>Cancelar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.confirmBtn, styles.confirmDelete]}
+                    onPress={async () => {
+                      if (routeTitle.trim().length < 3) {
+                        setMsg("Escolha um título para a rota (mín. 3 caracteres).");
+                        return;
+                      }
+
+                      setMetaOpen(false);
+                      await saveRoute();
+                    }}
+                    disabled={isBusy}
+                  >
+                    <Text style={styles.confirmDeleteText}>Salvar</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
 
           {/* Bottom sheet "Mais" */}
           <Modal transparent visible={showOptions} animationType="slide">
@@ -506,6 +519,31 @@ export default function CreateRoute() {
               <Pressable style={styles.sheet} onPress={() => {}}>
                 <View style={styles.sheetHandle} />
                 <Text style={styles.sheetTitle}>Mais opções</Text>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("title")}>
+                  <Ionicons name="text-outline" size={22} />
+                  <Text style={styles.sheetItemText}>Título</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("text")}>
+                  <Ionicons name="document-text-outline" size={22} />
+                  <Text style={styles.sheetItemText}>Texto</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("description")}>
+                  <Ionicons name="reader-outline" size={22} />
+                  <Text style={styles.sheetItemText}>Descrição</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={addImageBlock}>
+                  <Ionicons name="image-outline" size={22} />
+                  <Text style={styles.sheetItemText}>Imagem</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.sheetItem} onPress={() => setMsg("Opção de mapa (em breve).")}>
+                  <Ionicons name="map-outline" size={22} />
+                  <Text style={styles.sheetItemText}>Mapa</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.sheetItem}
@@ -548,8 +586,6 @@ export default function CreateRoute() {
               </Pressable>
             </Pressable>
           </Modal>
-
-         
         </LinearGradient>
       </View>
     </KeyboardAvoidingView>
@@ -559,7 +595,30 @@ export default function CreateRoute() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   container2: { flex: 1, padding: 10 },
-  header: { fontSize: 22, fontWeight: "600", marginBottom: 10, fontFamily: "Inter" },
+
+  // ✅ Top bar (fixa)
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 10,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+  },
+  topIconBtn: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 1,
+    borderRadius: 12,
+    backgroundColor: "transparent",
+    minWidth: 30,
+    justifyContent: "center",
+  },
+  topIconBtnDisabled: { opacity: 0.55 },
+
+  header: { fontSize: 22, fontWeight: "600", fontFamily: "Inter" },
 
   label: { marginBottom: 6, fontWeight: "500", fontSize: 16, fontFamily: "Inter" },
   routeTitleInput: {
@@ -579,8 +638,6 @@ const styles = StyleSheet.create({
 
   bottomDock: {
     position: "absolute",
-    left: 16,
-    right: 16,
     bottom: 12,
   },
 
@@ -593,32 +650,12 @@ const styles = StyleSheet.create({
   actionBtn: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 10,
-    borderRadius: 12,
+    width: 60,
+    borderRadius: 100,
     backgroundColor: "#F3F4F6",
+    padding: 10,
   },
   actionLabel: { marginTop: 4, fontSize: 12, fontWeight: "600", color: "#111827" },
-
-  save: {
-    backgroundColor: "#ffffff",
-    padding: 14,
-    borderRadius: 10,
-    marginTop: 6,
-    alignItems: "center",
-  },
-  saveDisabled: { opacity: 0.55 },
-  saveText: { color: "#111111a6", textAlign: "center", fontWeight: "600" },
-
-  deleteBtn: {
-    marginTop: 8,
-    padding: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  deleteText: { color: "#B00020", fontWeight: "800" },
-
-  back: { marginTop: 10, alignItems: "center" },
 
   sheetOverlay: {
     flex: 1,
@@ -648,29 +685,7 @@ const styles = StyleSheet.create({
   },
   sheetItemText: { fontSize: 15, fontWeight: "600" },
 
-  // ✅ confirmação excluir
-  confirmOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    padding: 18,
-  },
-  confirmCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-  },
-  confirmTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 6,
-    color: "#111827",
-  },
-  confirmText: {
-    fontSize: 14,
-    color: "#4B5563",
-    marginBottom: 14,
-  },
+  // ✅ botões reutilizados no modal de salvar
   confirmActions: {
     flexDirection: "row",
     gap: 10,
