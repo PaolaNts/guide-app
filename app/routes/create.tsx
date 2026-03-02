@@ -597,7 +597,7 @@ export default function CreateRoute() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1,},
   container2: { flex: 1, padding:5},
 
   // ✅ Top bar (fixa)
@@ -606,18 +606,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     height:40,
-    backgroundColor: "#ffffff96",
+    marginTop:10,
+   
    
   },
   topIconBtn: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "transparent",
     minWidth: 30,
     padding:10,
     justifyContent: "center",
+    backgroundColor: "#ffffff99",
+    borderRadius:15,
+    margin:5,
+    marginTop:5,
   },
-  topIconBtnDisabled: { opacity: 0.55 },
+  topIconBtnDisabled: { opacity: 0.99 },
 
   header: { fontSize: 22, fontWeight: "600", fontFamily: "Inter" },
 

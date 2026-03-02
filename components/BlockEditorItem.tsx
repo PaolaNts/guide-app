@@ -338,7 +338,7 @@ export default function BlockEditorItem({
        
 
         <TouchableOpacity style={styles.gearBtn} onPress={() => setSettingsOpen(true)}>
-          <Ionicons name="settings-outline" size={20} color="#111827" />
+          <Ionicons name="ellipsis-horizontal" size={20} color="#111827" />
         </TouchableOpacity>
       </View>
     </View>
