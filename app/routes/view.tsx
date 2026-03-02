@@ -1,5 +1,5 @@
 // app/routes/view.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Pressable,
   TextStyle,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -16,13 +17,18 @@ import { getAuth } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/src/firebaseConfig";
 import { shareRoute } from "../compartilhar/shareRoute";
+import { Video, Audio } from "expo-av";
+import Slider from "@react-native-community/slider";
+
+type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
+type Align = "left" | "center" | "right" | "justify";
 
 type Block = {
   id: string;
-  type: "title" | "text" | "description";
+  type: BlockType;
   content: string;
   format?: {
-    align?: "left" | "center" | "right";
+    align?: Align; // se vier "start", vamos normalizar pra "left"
     bold?: boolean;
     italic?: boolean;
     underline?: boolean;
@@ -39,11 +45,130 @@ type RouteType = {
   updatedAt?: any;
 };
 
+// =========================
+// AudioPlayer (reutilizável)
+// =========================
+function AudioPlayer({ uri }: { uri: string }) {
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [positionMillis, setPositionMillis] = useState(0);
+  const [durationMillis, setDurationMillis] = useState(1);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  const fmtTime = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  async function unloadSound() {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+    } catch {}
+  }
+
+  async function ensureSoundLoaded() {
+    if (soundRef.current) return;
+    if (!uri) return;
+
+    setIsLoadingAudio(true);
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+
+    const { sound } = await Audio.Sound.createAsync(
+      { uri },
+      { shouldPlay: false, progressUpdateIntervalMillis: 250 }
+    );
+
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (!status.isLoaded) return;
+
+      setIsPlaying(status.isPlaying);
+      setPositionMillis(status.positionMillis ?? 0);
+      setDurationMillis(status.durationMillis ?? 1);
+
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+        setPositionMillis(0);
+      }
+    });
+
+    soundRef.current = sound;
+    setIsLoadingAudio(false);
+  }
+
+  async function togglePlay() {
+    await ensureSoundLoaded();
+    const s = soundRef.current;
+    if (!s) return;
+
+    const status = await s.getStatusAsync();
+    if (!status.isLoaded) return;
+
+    if (status.isPlaying) await s.pauseAsync();
+    else await s.playAsync();
+  }
+
+  async function seekTo(ratio: number) {
+    const s = soundRef.current;
+    if (!s) return;
+    const newPos = Math.floor(ratio * (durationMillis || 1));
+    await s.setPositionAsync(newPos);
+  }
+
+  // Se trocar a uri, descarrega o anterior
+  useEffect(() => {
+    unloadSound();
+    setIsPlaying(false);
+    setPositionMillis(0);
+    setDurationMillis(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uri]);
+
+  // Cleanup ao desmontar
+  useEffect(() => {
+    return () => {
+      unloadSound();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const ratio = Math.min(1, Math.max(0, positionMillis / (durationMillis || 1)));
+
+  return (
+    <View style={styles.audioPlayer}>
+      <TouchableOpacity style={styles.audioPlayBtn} onPress={togglePlay} disabled={isLoadingAudio}>
+        <Ionicons name={isPlaying ? "pause" : "play"} size={20} color="#111827" />
+      </TouchableOpacity>
+
+      <View style={{ flex: 1 }}>
+        <Slider value={ratio} onSlidingComplete={seekTo} minimumValue={0} maximumValue={1} />
+        <View style={styles.audioTimes}>
+          <Text style={styles.audioTimeText}>{fmtTime(positionMillis)}</Text>
+          <Text style={styles.audioTimeText}>{fmtTime(durationMillis)}</Text>
+        </View>
+      </View>
+
+      <Ionicons name="mic-outline" size={18} color="#111827" />
+    </View>
+  );
+}
+
 export default function RouteView() {
   const router = useRouter();
-
   const { routeId } = useLocalSearchParams<{ routeId: string }>();
-  
+
   const routeIdStr = useMemo(() => {
     return Array.isArray(routeId) ? routeId[0] : routeId;
   }, [routeId]);
@@ -58,23 +183,22 @@ export default function RouteView() {
     await shareRoute(route);
 
     setCopied(true);
-
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000); // some depois de 2 segundos
+    setTimeout(() => setCopied(false), 2000);
   }
-
 
   // ✅ aplica o format do Firestore (item.format)
   function styleFromFormat(item: Block): TextStyle {
     const f = item.format;
 
-    const fontSize =
-      f?.size === "sm" ? 14 : f?.size === "lg" ? 20 : undefined; // md => deixa padrão do style base
+    const fontSize = f?.size === "sm" ? 14 : f?.size === "lg" ? 20 : undefined;
+
+    const rawAlign = (f?.align ?? "left") as any;
+    const align: Align = rawAlign === "start" ? "left" : rawAlign;
 
     return {
-      textAlign: f?.align ?? "left",
-      fontWeight: f?.bold ? "900" : undefined,
+      textAlign: align,
+      // 900 costuma falhar em algumas fontes. 700 é mais confiável.
+      fontWeight: f?.bold ? "700" : undefined,
       fontStyle: f?.italic ? "italic" : undefined,
       textDecorationLine: f?.underline ? "underline" : undefined,
       fontSize,
@@ -91,7 +215,7 @@ export default function RouteView() {
 
   const blocks = useMemo(() => {
     const list = route?.blocks || [];
-    return list.filter((b) => (b.content || "").trim().length > 0);
+    return list.filter((b) => (b.content || "").toString().trim().length > 0);
   }, [route]);
 
   useEffect(() => {
@@ -138,11 +262,7 @@ export default function RouteView() {
         <Ionicons name="alert-circle-outline" size={26} color="#111827" />
         <Text style={styles.emptyTitle}>Rota não encontrada</Text>
 
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.back()}
-          activeOpacity={0.9}
-        >
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
           <Text style={styles.backText}>Voltar</Text>
         </TouchableOpacity>
       </View>
@@ -177,21 +297,17 @@ export default function RouteView() {
         >
           <Ionicons name="create-outline" size={20} color="#2563eb" />
         </TouchableOpacity>
-        
-        <TouchableOpacity
-          onPress={handleShare}
-          style={styles.iconBtn}
-          activeOpacity={0.9}
-        >
+
+        <TouchableOpacity onPress={handleShare} style={styles.iconBtn} activeOpacity={0.9}>
           <Ionicons name="share-outline" size={20} color="#111827" />
         </TouchableOpacity>
-
       </View>
+
       {copied && (
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>Link copiado</Text>
-          </View>
-        )}
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>Link copiado</Text>
+        </View>
+      )}
 
       {/* Conteúdo em modo leitura */}
       <View style={styles.paper}>
@@ -206,6 +322,55 @@ export default function RouteView() {
           contentContainerStyle={{ paddingBottom: 14 }}
           ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
           renderItem={({ item }) => {
+            // IMAGE
+            if (item.type === "image") {
+              const uri = item.content || "";
+              const ok = uri.startsWith("http") || uri.startsWith("file:");
+              return ok ? (
+                <View style={styles.mediaWrap}>
+                  <Image source={{ uri }} style={styles.image} resizeMode="cover" />
+                </View>
+              ) : (
+                <View style={styles.invalidBox}>
+                  <Text style={styles.invalidText}>Imagem inválida</Text>
+                </View>
+              );
+            }
+
+            // VIDEO
+            if (item.type === "video") {
+              const uri = item.content || "";
+              const ok = uri.startsWith("http") || uri.startsWith("file:");
+              return ok ? (
+                <View style={styles.mediaWrap}>
+                  <Video
+                    source={{ uri }}
+                    style={styles.video}
+                    useNativeControls
+                    resizeMode={"contain" as any}
+                  />
+                </View>
+              ) : (
+                <View style={styles.invalidBox}>
+                  <Text style={styles.invalidText}>Vídeo inválido</Text>
+                </View>
+              );
+            }
+
+            // AUDIO
+            if (item.type === "audio") {
+              const uri = item.content || "";
+              const ok = uri.startsWith("http") || uri.startsWith("file:");
+              return ok ? (
+                <AudioPlayer uri={uri} />
+              ) : (
+                <View style={styles.invalidBox}>
+                  <Text style={styles.invalidText}>Áudio inválido</Text>
+                </View>
+              );
+            }
+
+            // TEXT
             const inline = styleFromFormat(item);
 
             if (item.type === "title") {
@@ -316,6 +481,62 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
 
+  // MEDIA
+  mediaWrap: {
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#E5E7EB",
+  },
+  image: {
+    width: "100%",
+    height: 400,
+  },
+  video: {
+    width: "100%",
+    height: 220,
+  },
+
+  invalidBox: {
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  invalidText: { color: "#6B7280", fontWeight: "700" },
+
+  // AUDIO PLAYER
+  audioPlayer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  audioPlayBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  audioTimes: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  audioTimeText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
+
   hintRow: {
     marginTop: 10,
     alignItems: "center",
@@ -325,19 +546,18 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   hintText: { color: "#6B7280", fontWeight: "700", fontSize: 12 },
+
   toast: {
-  margin:10,
-  bottom: 10,
-  backgroundColor: "#1118273b",
-  paddingVertical: 12,
-  borderRadius: 12,
-  justifyContent:'center',
-  alignItems: "center",
-},
-
-toastText: {
-  color: "#fff",
-  fontWeight: "800",
-},
-
+    margin: 10,
+    bottom: 10,
+    backgroundColor: "#1118273b",
+    paddingVertical: 12,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  toastText: {
+    color: "#fff",
+    fontWeight: "800",
+  },
 });

@@ -1,7 +1,17 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Video, Audio } from "expo-av";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import React, { useMemo, useRef, useState, useEffect } from "react";
+import {
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Slider from "@react-native-community/slider";
 
 export type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
@@ -13,7 +23,7 @@ export type Block = {
   type: BlockType;
   content: string;
   format?: {
-    align?: Align;
+    align?: Align; // se vier "start", normalizamos abaixo
     bold?: boolean;
     italic?: boolean;
     underline?: boolean;
@@ -44,13 +54,18 @@ export default function BlockEditorItem({
   onMove,
   onUpdateFormat,
 }: Props) {
-  const [showAlign, setShowAlign] = useState(false);
-  const [showStyle, setShowStyle] = useState(false);
+  const isTextual = block.type === "title" || block.type === "text" || block.type === "description";
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const placeholder =
     block.type === "title" ? "Título" : block.type === "description" ? "Descrição" : "Texto";
 
-  const align: Align = block.format?.align ?? "left";
+  // ========
+  // FORMAT
+  // ========
+  const rawAlign = (block.format?.align ?? "left") as any;
+  const align: Align = rawAlign === "start" ? "left" : rawAlign;
+
   const bold = !!block.format?.bold;
   const italic = !!block.format?.italic;
   const underline = !!block.format?.underline;
@@ -71,19 +86,32 @@ export default function BlockEditorItem({
 
   const sizeStyle = size === "sm" ? styles.sizeSm : size === "lg" ? styles.sizeLg : styles.sizeMd;
 
-  const inputStyle = [
-    styles.input,
-    block.type === "title" && styles.titleInput,
-    block.type === "description" && styles.descriptionInput,
-    sizeStyle,
-    {
-      textAlign: align === "justify" ? "left" : align,
-      fontWeight: bold ? "800" : "400",
-      fontStyle: italic ? "italic" : "normal",
-      textDecorationLine: underline ? "underline" : "none",
-      lineHeight: block.type === "text" ? 22 : undefined,
-    } as any,
-  ];
+  const inputStyle = useMemo(
+    () => [
+      styles.input,
+      block.type === "title" && styles.titleInput,
+      block.type === "description" && styles.descriptionInput,
+      sizeStyle,
+      {
+        textAlign: align,
+        fontWeight: bold ? ("700" as const) : ("400" as const),
+        fontStyle: italic ? ("italic" as const) : ("normal" as const),
+        textDecorationLine: underline ? ("underline" as const) : ("none" as const),
+        lineHeight: block.type === "text" ? 22 : undefined,
+      },
+    ],
+    [align, bold, italic, underline, sizeStyle, block.type]
+  );
+
+  // =========================
+  // ACTIONS (FORMAT)
+  // =========================
+  const setAlign = (value: Align) => onUpdateFormat(block.id, { align: value });
+  const setSize = (value: FontSize) => onUpdateFormat(block.id, { size: value });
+
+  const toggleBold = () => onUpdateFormat(block.id, { bold: !bold });
+  const toggleItalic = () => onUpdateFormat(block.id, { italic: !italic });
+  const toggleUnderline = () => onUpdateFormat(block.id, { underline: !underline });
 
   // =========================
   // AUDIO PLAYER (expo-av)
@@ -168,7 +196,6 @@ export default function BlockEditorItem({
     await s.setPositionAsync(newPos);
   }
 
-  // Se trocar o áudio, descarrega o anterior
   useEffect(() => {
     if (block.type !== "audio") return;
     unloadSound();
@@ -178,7 +205,6 @@ export default function BlockEditorItem({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUri]);
 
-  // Cleanup ao desmontar
   useEffect(() => {
     return () => {
       unloadSound();
@@ -186,9 +212,108 @@ export default function BlockEditorItem({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ==========
-  // Header padrão (setas + lixeira)
-  // ==========
+  // =========================
+  // SETTINGS SHEET (MODAL)
+  // =========================
+  const SettingsSheet = () => (
+    <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      {/* backdrop */}
+      <Pressable style={styles.backdrop} onPress={() => setSettingsOpen(false)} />
+
+      {/* sheet */}
+      <View style={styles.sheet}>
+        <View style={styles.sheetHeader}>
+          <Text style={styles.sheetTitle}>Configurações do bloco</Text>
+          <TouchableOpacity onPress={() => setSettingsOpen(false)} style={styles.closeBtn}>
+            <Ionicons name="close" size={18} color="#111827" />
+          </TouchableOpacity>
+        </View>
+
+        {/* TEXT OPTIONS */}
+        {isTextual && (
+          <>
+            <Text style={styles.sectionTitle}>Texto</Text>
+
+            <View style={styles.row}>
+              <OptionChip
+                label="Negrito"
+                active={bold}
+                icon={<MaterialCommunityIcons name="format-bold" size={16} color="#111827" />}
+                onPress={toggleBold}
+              />
+              <OptionChip
+                label="Itálico"
+                active={italic}
+                icon={<MaterialCommunityIcons name="format-italic" size={16} color="#111827" />}
+                onPress={toggleItalic}
+              />
+              <OptionChip
+                label="Sublinhar"
+                active={underline}
+                icon={<MaterialCommunityIcons name="format-underline" size={16} color="#111827" />}
+                onPress={toggleUnderline}
+              />
+            </View>
+
+            <Text style={styles.subTitle}>Alinhamento</Text>
+            <View style={styles.row}>
+              <OptionChip
+                label="Esq."
+                active={align === "left"}
+                icon={<MaterialCommunityIcons name="format-align-left" size={16} color="#111827" />}
+                onPress={() => setAlign("left")}
+              />
+              <OptionChip
+                label="Centro"
+                active={align === "center"}
+                icon={<MaterialCommunityIcons name="format-align-center" size={16} color="#111827" />}
+                onPress={() => setAlign("center")}
+              />
+              <OptionChip
+                label="Dir."
+                active={align === "right"}
+                icon={<MaterialCommunityIcons name="format-align-right" size={16} color="#111827" />}
+                onPress={() => setAlign("right")}
+              />
+              <OptionChip
+                label="Just."
+                active={align === "justify"}
+                icon={<MaterialCommunityIcons name="format-align-justify" size={16} color="#111827" />}
+                onPress={() => setAlign("justify")}
+              />
+            </View>
+
+            <Text style={styles.subTitle}>Tamanho</Text>
+            <View style={styles.row}>
+              <OptionChip label="P" active={size === "sm"} onPress={() => setSize("sm")} />
+              <OptionChip label="M" active={size === "md"} onPress={() => setSize("md")} />
+              <OptionChip label="G" active={size === "lg"} onPress={() => setSize("lg")} />
+            </View>
+          </>
+        )}
+
+        {/* GENERAL OPTIONS */}
+        <Text style={styles.sectionTitle}>Ações</Text>
+        <View style={styles.row}>
+          <OptionChip
+            label="Excluir bloco"
+            danger
+            icon={<Ionicons name="trash-outline" size={16} color="#EF4444" />}
+            onPress={() => {
+              setSettingsOpen(false);
+              onRemove(block.id);
+            }}
+          />
+        </View>
+
+        <View style={{ height: 6 }} />
+      </View>
+    </Modal>
+  );
+
+  // =========================
+  // HEADER (clean)
+  // =========================
   const BlockHeader = () => (
     <View style={styles.blockHeader}>
       <View style={styles.moveButtons}>
@@ -209,35 +334,23 @@ export default function BlockEditorItem({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.inlineToolbar}>
-        {(block.type === "title" || block.type === "text" || block.type === "description") && (
-          <>
-            <TouchableOpacity style={styles.toolBtn} onPress={() => setShowAlign(true)}>
-              <MaterialCommunityIcons name={alignIcon as any} size={18} color="#111827" />
-            </TouchableOpacity>
+      <View style={styles.headerRight}>
+       
 
-            <TouchableOpacity style={styles.toolBtn} onPress={() => setShowStyle(true)}>
-              <MaterialCommunityIcons name="format-text" size={18} color="#111827" />
-            </TouchableOpacity>
-          </>
-        )}
-
-        <TouchableOpacity onPress={() => onRemove(block.id)}>
-          <Ionicons name="trash-outline" size={20} color="#EF4444" />
+        <TouchableOpacity style={styles.gearBtn} onPress={() => setSettingsOpen(true)}>
+          <Ionicons name="settings-outline" size={20} color="#111827" />
         </TouchableOpacity>
       </View>
     </View>
   );
 
-  // ==========
-  // Conteúdo do bloco (varia por tipo)
-  // ==========
+  // =========================
+  // CONTENT
+  // =========================
   const renderContent = () => {
-    // IMAGE
     if (block.type === "image") {
       const uri = typeof block.content === "string" ? block.content : "";
-      const ok = uri.startsWith("http");
-
+      const ok = uri.startsWith("http") || uri.startsWith("file:");
       return ok ? (
         <View style={styles.mediaWrap}>
           <Image source={{ uri }} style={styles.image} resizeMode="cover" />
@@ -249,11 +362,9 @@ export default function BlockEditorItem({
       );
     }
 
-    // VIDEO
     if (block.type === "video") {
       const uri = typeof block.content === "string" ? block.content : "";
-      const ok = uri.startsWith("http");
-
+      const ok = uri.startsWith("http") || uri.startsWith("file:");
       return ok ? (
         <View style={styles.mediaWrap}>
           <Video source={{ uri }} style={styles.video} useNativeControls resizeMode={"contain" as any} />
@@ -265,11 +376,9 @@ export default function BlockEditorItem({
       );
     }
 
-    // AUDIO (player completo)
     if (block.type === "audio") {
       const uri = audioUri;
       const ok = !!uri && (uri.startsWith("http") || uri.startsWith("file:"));
-
       if (!ok) {
         return (
           <View style={styles.invalidBox}>
@@ -288,7 +397,6 @@ export default function BlockEditorItem({
 
           <View style={{ flex: 1 }}>
             <Slider value={ratio} onSlidingComplete={seekTo} minimumValue={0} maximumValue={1} />
-
             <View style={styles.audioTimes}>
               <Text style={styles.audioTimeText}>{fmtTime(positionMillis)}</Text>
               <Text style={styles.audioTimeText}>{fmtTime(durationMillis)}</Text>
@@ -300,7 +408,6 @@ export default function BlockEditorItem({
       );
     }
 
-    // TEXT BLOCKS
     return (
       <TextInput
         placeholder={placeholder}
@@ -308,18 +415,57 @@ export default function BlockEditorItem({
         onChangeText={(text) => onChangeContent(block.id, text)}
         style={inputStyle}
         multiline
+        textAlignVertical="top"
       />
     );
   };
 
-  // ==========
-  // Wrapper padrão
-  // ==========
   return (
     <View style={styles.block}>
       <BlockHeader />
       {renderContent()}
+      <SettingsSheet />
     </View>
+  );
+}
+
+// =========================
+// REUSABLE CHIP
+// =========================
+function OptionChip({
+  label,
+  active,
+  icon,
+  danger,
+  onPress,
+}: {
+  label: string;
+  active?: boolean;
+  icon?: React.ReactNode;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[
+        styles.chip,
+        active && styles.chipActive,
+        danger && styles.chipDanger,
+        danger && active && styles.chipDangerActive,
+      ]}
+    >
+      {icon ? <View style={{ marginRight: 8 }}>{icon}</View> : null}
+      <Text
+        style={[
+          styles.chipText,
+          active && styles.chipTextActive,
+          danger && styles.chipTextDanger,
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -330,18 +476,21 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 12,
   },
+
+  // HEADER
   blockHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 10,
     alignItems: "center",
+    gap: 10,
   },
   moveButtons: { flexDirection: "row", gap: 10 },
-  inlineToolbar: { flexDirection: "row", alignItems: "center", gap: 10 },
 
-  toolBtn: {
-    width: 34,
-    height: 34,
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  gearBtn: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
@@ -350,11 +499,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  summaryPills: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  pill: {
+    paddingHorizontal: 8,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  pillText: { fontSize: 11, fontWeight: "800", color: "#111827" },
+
   // TEXT
-  input: { fontSize: 16, color: "#121213" },
+  input: {
+    fontSize: 16,
+    color: "#121213",
+    padding: 0,
+    margin: 0,
+  },
   titleInput: { fontSize: 20, fontWeight: "600", color: "#000000" },
   descriptionInput: { color: "#6B7280" },
-
   sizeSm: { fontSize: 13 },
   sizeMd: { fontSize: 16 },
   sizeLg: { fontSize: 18 },
@@ -365,16 +533,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#E5E7EB",
   },
-
-  image: {
-    width: "100%",
-    height: 400,
-  },
-
-  video: {
-    width: "100%",
-    height: 220,
-  },
+  image: { width: "100%", height: 400 },
+  video: { width: "100%", height: 220 },
 
   invalidBox: {
     padding: 12,
@@ -385,7 +545,7 @@ const styles = StyleSheet.create({
   },
   invalidText: { color: "#6B7280", fontWeight: "600" },
 
-  // AUDIO PLAYER
+  // AUDIO
   audioPlayer: {
     flexDirection: "row",
     alignItems: "center",
@@ -406,14 +566,85 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  audioTimes: {
+  audioTimes: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+  audioTimeText: { fontSize: 12, color: "#6B7280", fontWeight: "600" },
+
+  // MODAL / SHEET
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  sheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 16,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  sheetHeader: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 4,
+    marginBottom: 12,
   },
-  audioTimeText: {
+  sheetTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  sectionTitle: {
+    marginTop: 6,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  subTitle: {
+    marginTop: 10,
+    marginBottom: 8,
     fontSize: 12,
+    fontWeight: "700",
     color: "#6B7280",
-    fontWeight: "600",
   },
+
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+
+  // CHIPS
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  chipActive: {
+    borderColor: "#111827",
+    backgroundColor: "#FFFFFF",
+  },
+  chipDanger: {
+    backgroundColor: "#FFF1F2",
+    borderColor: "#FECDD3",
+  },
+  chipDangerActive: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FFFFFF",
+  },
+  chipText: { fontSize: 13, fontWeight: "700", color: "#111827" },
+  chipTextActive: { color: "#111827" },
+  chipTextDanger: { color: "#EF4444" },
 });

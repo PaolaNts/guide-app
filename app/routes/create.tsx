@@ -30,7 +30,7 @@ import BlockEditorItem, { Block, BlockType } from "../../components/BlockEditorI
 import { uploadMediaCloudinary } from "@/src/services/uploadMediaCloudinary";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import DraggableFlatList from "react-native-draggable-flatlist";
+
 
 function makeId() {
   // @ts-ignore
@@ -360,232 +360,236 @@ export default function CreateRoute() {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={styles.container}>
         {/* ✅ Top bar fixa (voltar + salvar) */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            style={styles.topIconBtn}
-            onPress={() => router.back()}
-            disabled={isBusy}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chevron-back" size={22} />
-          </TouchableOpacity>
-
-          <View style={{ alignItems: "center", flex: 1 }}>
-            <Text style={styles.header}>{isEdit ? "Editar" : "Criar"}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.topIconBtn, !canSave && styles.topIconBtnDisabled]}
-            onPress={() => {
-              setMsg(null);
-              setMetaOpen(true); // ✅ abre a "aba" pra digitar título/cliente antes de salvar
-            }}
-            disabled={!canSave}
-            activeOpacity={0.8}
-          >
-            {isSaving || isUploading ? <ActivityIndicator /> : <Ionicons name="save-outline" size={20} />}
-          </TouchableOpacity>
-        </View>
+        
 
         <LinearGradient
           colors={["#87a2eb9f", "#c581c960"]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          style={styles.container2}
+          style={styles.container}
         >
-          {msg && <Text style={styles.msg}>{msg}</Text>}
+          
+            <View style={styles.topBar}>
+              <TouchableOpacity
+                style={styles.topIconBtn}
+                onPress={() => router.back()}
+                disabled={isBusy}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chevron-back" size={22} />
+              </TouchableOpacity>
 
-          {isLoadingRoute ? (
-            <View style={{ marginTop: 14 }}>
-              <ActivityIndicator />
-            </View>
-          ) : (
-            <>
-              {/* ✅ inputs removidos daqui (ficam só no modal antes de salvar) */}
+              <View style={{ alignItems: "center", flex: 1 }}>
+                <Text style={styles.header}>{isEdit ? "Editar" : "Criar"}</Text>
+              </View>
 
-              <FlatList
-                data={blocks}
-                keyExtractor={(item) => item.id}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ paddingBottom: 170 }}
-                ListEmptyComponent={
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
-                  </View>
-                }
-                renderItem={({ item, index }) => (
-                  <BlockEditorItem
-                    block={item}
-                    index={index}
-                    isFirst={index === 0}
-                    isLast={index === blocks.length - 1}
-                    onChangeContent={updateBlock}
-                    onRemove={removeBlock}
-                    onMove={moveBlock}
-                    onUpdateFormat={(id, patch) =>
-                      setBlocks((prev) =>
-                        prev.map((b) =>
-                          b.id === id
-                            ? {
-                                ...b,
-                                format: {
-                                  align: "left",
-                                  bold: false,
-                                  italic: false,
-                                  underline: false,
-                                  size: "md",
-                                  ...b.format,
-                                  ...patch,
-                                },
-                              }
-                            : b
-                        )
-                      )
-                    }
-                  />
-                )}
-              />
-            </>
-          )}
-
-          {/* ✅ Bottom dock: fica só o "Mais" */}
-          <View style={styles.bottomDock}>
-            <View style={styles.actionBar}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)} disabled={isBusy}>
-                <Ionicons name="add-circle-outline" size={24} />
-                <Text style={styles.actionLabel}>Mais</Text>
+              <TouchableOpacity
+                style={[styles.topIconBtn, !canSave && styles.topIconBtnDisabled]}
+                onPress={() => {
+                  setMsg(null);
+                  setMetaOpen(true); // ✅ abre a "aba" pra digitar título/cliente antes de salvar
+                }}
+                disabled={!canSave}
+                activeOpacity={0.8}
+              >
+                {isSaving || isUploading ? <ActivityIndicator /> : <Ionicons name="save-outline" size={20} />}
               </TouchableOpacity>
             </View>
-          </View>
+          <View style={styles.container2}>
+            {msg && <Text style={styles.msg}>{msg}</Text>}
 
-          {/* ✅ Modal: Antes de salvar (Título + Cliente) */}
-          <Modal transparent visible={metaOpen} animationType="slide">
-            <Pressable style={styles.sheetOverlay} onPress={() => setMetaOpen(false)}>
-              <Pressable style={styles.sheet} onPress={() => {}}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>{isEdit ? "Dados da rota" : "Antes de salvar"}</Text>
+            {isLoadingRoute ? (
+              <View style={{ marginTop: 14 }}>
+                <ActivityIndicator />
+              </View>
+            ) : (
+              <>
+                
 
-                <Text style={styles.label}>Título da rota</Text>
-                <TextInput
-                  value={routeTitle}
-                  onChangeText={setRouteTitle}
-                  placeholder="Ex.: Centro histórico + museus"
-                  style={styles.routeTitleInput}
-                  returnKeyType="next"
-                  autoFocus
-                />
-
-                <Text style={styles.label}>Cliente</Text>
-                <TextInput
-                  value={clientName}
-                  onChangeText={setClientName}
-                  placeholder="Ex.: Agência XPTO / Maria Silva"
-                  style={styles.routeTitleInput}
-                  returnKeyType="done"
-                />
-
-                <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
-                  <TouchableOpacity
-                    style={[styles.confirmBtn, styles.confirmCancel]}
-                    onPress={() => setMetaOpen(false)}
-                    disabled={isBusy}
-                  >
-                    <Text style={styles.confirmCancelText}>Cancelar</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.confirmBtn, styles.confirmDelete]}
-                    onPress={async () => {
-                      if (routeTitle.trim().length < 3) {
-                        setMsg("Escolha um título para a rota (mín. 3 caracteres).");
-                        return;
+                <FlatList
+                  data={blocks}
+                  keyExtractor={(item) => item.id}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ paddingBottom: 170 }}
+                  ListEmptyComponent={
+                    <View style={{ alignItems: "center" }}>
+                      <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
+                    </View>
+                  }
+                  renderItem={({ item, index }) => (
+                    <BlockEditorItem
+                      block={item}
+                      index={index}
+                      isFirst={index === 0}
+                      isLast={index === blocks.length - 1}
+                      onChangeContent={updateBlock}
+                      onRemove={removeBlock}
+                      onMove={moveBlock}
+                      onUpdateFormat={(id, patch) =>
+                        setBlocks((prev) =>
+                          prev.map((b) =>
+                            b.id === id
+                              ? {
+                                  ...b,
+                                  format: {
+                                    align: "left",
+                                    bold: false,
+                                    italic: false,
+                                    underline: false,
+                                    size: "md",
+                                    ...b.format,
+                                    ...patch,
+                                  },
+                                }
+                              : b
+                          )
+                        )
                       }
+                    />
+                  )}
+                />
+              </>
+            )}
 
-                      setMetaOpen(false);
-                      await saveRoute();
-                    }}
-                    disabled={isBusy}
-                  >
-                    <Text style={styles.confirmDeleteText}>Salvar</Text>
+            {/* ✅ Bottom dock: fica só o "Mais" */}
+            <View style={styles.bottomDock}>
+              <View style={styles.actionBar}>
+                <TouchableOpacity style={styles.actionBtn} onPress={() => setShowOptions(true)} disabled={isBusy}>
+                  <Ionicons name="add-circle-outline" size={24} />
+                  <Text style={styles.actionLabel}>Mais</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ✅ Modal: Antes de salvar (Título + Cliente) */}
+            <Modal transparent visible={metaOpen} animationType="slide">
+              <Pressable style={styles.sheetOverlay} onPress={() => setMetaOpen(false)}>
+                <Pressable style={styles.sheet} onPress={() => {}}>
+                  <View style={styles.sheetHandle} />
+                  <Text style={styles.sheetTitle}>{isEdit ? "Dados da rota" : "Antes de salvar"}</Text>
+
+                  <Text style={styles.label}>Título da rota</Text>
+                  <TextInput
+                    value={routeTitle}
+                    onChangeText={setRouteTitle}
+                    placeholder="Ex.: Centro histórico + museus"
+                    style={styles.routeTitleInput}
+                    returnKeyType="next"
+                    autoFocus
+                  />
+
+                  <Text style={styles.label}>Cliente</Text>
+                  <TextInput
+                    value={clientName}
+                    onChangeText={setClientName}
+                    placeholder="Ex.: Agência XPTO / Maria Silva"
+                    style={styles.routeTitleInput}
+                    returnKeyType="done"
+                  />
+
+                  <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.confirmBtn, styles.confirmCancel]}
+                      onPress={() => setMetaOpen(false)}
+                      disabled={isBusy}
+                    >
+                      <Text style={styles.confirmCancelText}>Cancelar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.confirmBtn, styles.confirmDelete]}
+                      onPress={async () => {
+                        if (routeTitle.trim().length < 3) {
+                          setMsg("Escolha um título para a rota (mín. 3 caracteres).");
+                          return;
+                        }
+
+                        setMetaOpen(false);
+                        await saveRoute();
+                      }}
+                      disabled={isBusy}
+                    >
+                      <Text style={styles.confirmDeleteText}>Salvar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Bottom sheet "Mais" */}
+            <Modal transparent visible={showOptions} animationType="slide">
+              <Pressable style={styles.sheetOverlay} onPress={() => setShowOptions(false)}>
+                <Pressable style={styles.sheet} onPress={() => {}}>
+                  <View style={styles.sheetHandle} />
+                  <Text style={styles.sheetTitle}>Mais opções</Text>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("title")}>
+                    <Ionicons name="text-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Título</Text>
                   </TouchableOpacity>
-                </View>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("text")}>
+                    <Ionicons name="document-text-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Texto</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("description")}>
+                    <Ionicons name="reader-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Descrição</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addImageBlock}>
+                    <Ionicons name="image-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Imagem</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => setMsg("Opção de mapa (em breve).")}>
+                    <Ionicons name="map-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Mapa</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.sheetItem}
+                    onPress={() => {
+                      setMsg("Inserir lista (em breve).");
+                      setShowOptions(false);
+                    }}
+                  >
+                    <Ionicons name="list-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Inserir lista</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.sheetItem}
+                    onPress={() => {
+                      setMsg("Adicionar ponto no mapa (em breve).");
+                      setShowOptions(false);
+                    }}
+                  >
+                    <Ionicons name="pin-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Adicionar ponto no mapa</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addAudioBlock}>
+                    <Ionicons name="mic-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Áudio</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addVideoBlock}>
+                    <Ionicons name="videocam-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Vídeo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.sheetItem, { justifyContent: "center" }]}
+                    onPress={() => setShowOptions(false)}
+                  >
+                    <Text style={{ fontWeight: "700", color: "#6B7280" }}>Fechar</Text>
+                  </TouchableOpacity>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          </Modal>
-
-          {/* Bottom sheet "Mais" */}
-          <Modal transparent visible={showOptions} animationType="slide">
-            <Pressable style={styles.sheetOverlay} onPress={() => setShowOptions(false)}>
-              <Pressable style={styles.sheet} onPress={() => {}}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>Mais opções</Text>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("title")}>
-                  <Ionicons name="text-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Título</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("text")}>
-                  <Ionicons name="document-text-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Texto</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("description")}>
-                  <Ionicons name="reader-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Descrição</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addImageBlock}>
-                  <Ionicons name="image-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Imagem</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => setMsg("Opção de mapa (em breve).")}>
-                  <Ionicons name="map-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Mapa</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.sheetItem}
-                  onPress={() => {
-                    setMsg("Inserir lista (em breve).");
-                    setShowOptions(false);
-                  }}
-                >
-                  <Ionicons name="list-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Inserir lista</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.sheetItem}
-                  onPress={() => {
-                    setMsg("Adicionar ponto no mapa (em breve).");
-                    setShowOptions(false);
-                  }}
-                >
-                  <Ionicons name="pin-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Adicionar ponto no mapa</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addAudioBlock}>
-                  <Ionicons name="mic-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Áudio</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addVideoBlock}>
-                  <Ionicons name="videocam-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Vídeo</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.sheetItem, { justifyContent: "center" }]}
-                  onPress={() => setShowOptions(false)}
-                >
-                  <Text style={{ fontWeight: "700", color: "#6B7280" }}>Fechar</Text>
-                </TouchableOpacity>
-              </Pressable>
-            </Pressable>
-          </Modal>
+            </Modal>
+          </View>
         </LinearGradient>
       </View>
     </KeyboardAvoidingView>
@@ -594,26 +598,23 @@ export default function CreateRoute() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  container2: { flex: 1, padding: 10 },
+  container2: { flex: 1, padding:5},
 
   // ✅ Top bar (fixa)
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 8,
-    marginBottom: 8,
-    gap: 10,
-    backgroundColor: "#ffffff",
-    borderRadius: 10,
+    height:40,
+    backgroundColor: "#ffffff96",
+   
   },
   topIconBtn: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 1,
-    borderRadius: 12,
     backgroundColor: "transparent",
     minWidth: 30,
+    padding:10,
     justifyContent: "center",
   },
   topIconBtnDisabled: { opacity: 0.55 },
@@ -651,7 +652,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     width: 60,
-    borderRadius: 100,
+    borderRadius: "100%",
     backgroundColor: "#F3F4F6",
     padding: 10,
   },
