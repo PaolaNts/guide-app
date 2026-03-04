@@ -19,6 +19,7 @@ import { db } from "@/src/firebaseConfig";
 import { shareRoute } from "../compartilhar/shareRoute";
 import { Video, Audio } from "expo-av";
 import Slider from "@react-native-community/slider";
+import { useOnline } from "@/hooks/useOnline";
 
 type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
 type Align = "left" | "center" | "right" | "justify";
@@ -176,7 +177,8 @@ export default function RouteView() {
   const [route, setRoute] = useState<RouteType | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-
+  const isOnline = useOnline();
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   async function handleShare() {
     if (!route) return;
 
@@ -220,6 +222,7 @@ export default function RouteView() {
 
   useEffect(() => {
     const user = getAuth().currentUser;
+     setErrorMsg(null);
 
     if (!user || !routeIdStr) {
       setLoading(false);
@@ -241,17 +244,48 @@ export default function RouteView() {
         setRoute({ id: snap.id, ...(snap.data() as Omit<RouteType, "id">) });
         setLoading(false);
       },
-      () => setLoading(false)
+      (err) => {
+        setLoading(false);
+        setErrorMsg(err?.message ?? "Erro ao carregar a rota.");
+      }
     );
 
     return () => unsub();
   }, [routeIdStr]);
+  if (!isOnline) {
+    return (
+      <View style={styles.center}>
+        <Ionicons name="wifi-outline" size={26} color="#111827" />
+        <Text style={styles.emptyTitle}>Sem conexão</Text>
+        <Text style={[styles.loadingText, { textAlign: "center" }]}>
+          Conecte-se à internet para carregar a rota.
+        </Text>
+
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
+          <Text style={styles.backText}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
         <Text style={styles.loadingText}>Carregando…</Text>
+      </View>
+    );
+  }
+  if (errorMsg) {
+    return (
+      <View style={styles.center}>
+        <Ionicons name="alert-circle-outline" size={26} color="#111827" />
+        <Text style={styles.emptyTitle}>Não deu pra carregar</Text>
+        <Text style={[styles.loadingText, { textAlign: "center" }]}>{errorMsg}</Text>
+
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.9}>
+          <Text style={styles.backText}>Voltar</Text>
+        </TouchableOpacity>
       </View>
     );
   }

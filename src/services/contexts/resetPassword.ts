@@ -1,10 +1,14 @@
-import { getAuth, sendPasswordResetEmail } from 'firebase/auth'
+import { getAuth, sendPasswordResetEmail } from "firebase/auth"
 
 export async function resetPassword(email: string) {
-  if (!email) {
-    throw new Error('EMAIL_REQUIRED')
+  const trimmed = email.trim()
+
+  if (!trimmed) {
+    const err: any = new Error("EMAIL_REQUIRED")
+    err.code = "EMAIL_REQUIRED"
+    throw err
   }
 
   const auth = getAuth()
-  await sendPasswordResetEmail(auth, email.trim())
+  return sendPasswordResetEmail(auth, trimmed)
 }
