@@ -310,7 +310,7 @@ export default function RouteView() {
     <View style={styles.screen}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.9}>
+        <TouchableOpacity onPress={() => router.push('/(tabs)/home')} style={styles.iconBtn} activeOpacity={0.9}>
           <Ionicons name="arrow-back" size={20} color="#111827" />
         </TouchableOpacity>
 

@@ -18,18 +18,30 @@ export async function shareRoute(route: any) {
 
   const invitesRef = collection(db, "users", user.uid, "route_invites");
 
-  // 🔴 buscar convites antigos dessa rota
   const q = query(invitesRef, where("routeId", "==", route.id));
   const oldInvites = await getDocs(q);
 
-  // 🔴 apagar convites antigos
   for (const invite of oldInvites.docs) {
     await deleteDoc(doc(invitesRef, invite.id));
   }
 
-  // criar novo convite
   const expires = new Date();
   expires.setDate(expires.getDate() + 3);
+
+  const normalizedBlocks = (route?.blocks || []).map((block: any, index: number) => ({
+    id: String(block?.id ?? index),
+    type: block?.type ?? "text",
+    content: String(block?.content ?? ""),
+    format: block?.format
+      ? {
+          align: block.format.align ?? "left",
+          bold: !!block.format.bold,
+          italic: !!block.format.italic,
+          underline: !!block.format.underline,
+          size: block.format.size ?? "md",
+        }
+      : undefined,
+  }));
 
   const docRef = await addDoc(invitesRef, {
     ownerUid: user.uid,
@@ -38,9 +50,9 @@ export async function shareRoute(route: any) {
     createdAt: serverTimestamp(),
     expiresAt: expires,
     routeSnapshot: {
-      title: route.title,
-      clientName: route.clientName,
-      blocks: route.blocks,
+      title: route.title ?? "",
+      clientName: route.clientName ?? "",
+      blocks: normalizedBlocks,
     },
   });
 

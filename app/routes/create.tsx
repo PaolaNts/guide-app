@@ -31,6 +31,8 @@ import { uploadMediaCloudinary } from "@/src/services/uploadMediaCloudinary";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useOnline } from "@/hooks/useOnline";
+import { globalStyles } from '@/mystyles/global'
 
 function makeId() {
   // @ts-ignore
@@ -48,6 +50,8 @@ type RouteDoc = {
 
 export default function CreateRoute() {
   const router = useRouter();
+
+  const  isOnline  = useOnline(); 
 
   // ✅ se vier id, é edição
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -74,7 +78,7 @@ export default function CreateRoute() {
     const auth = getAuth();
     const user = auth.currentUser;
     if (!user) {
-      setMsg("Você precisa estar logada.");
+      setMsg("Você precisa estar logado.");
       return null;
     }
     return user;
@@ -82,7 +86,7 @@ export default function CreateRoute() {
 
   // ✅ se for editar, carrega do Firestore
   useEffect(() => {
-    if (!isEdit) return;
+    if (!isEdit || !isOnline) return;
 
     const run = async () => {
       setMsg(null);
@@ -129,7 +133,7 @@ export default function CreateRoute() {
 
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, isOnline]);
 
   function addBlock(type: BlockType) {
     setMsg(null);
@@ -357,6 +361,28 @@ export default function CreateRoute() {
   }
 
   const isBusy = isSaving || isUploading || isLoadingRoute;
+
+
+
+  if (!isOnline) {
+    return (
+      <View style={globalStyles.center}>
+        <Ionicons name="wifi-outline" size={26} color="#111827" />
+        <Text style={globalStyles.emptyTitle}>Sem conexão</Text>
+        <Text style={[globalStyles.loadingText, { textAlign: "center" }]}>
+          Conecte-se à internet para carregar a rota.
+        </Text>
+
+        <TouchableOpacity
+          style={globalStyles.backBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.9}
+        >
+          <Text style={globalStyles.backText}>Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
   <KeyboardAvoidingView
@@ -795,4 +821,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#fff",
   },
+  
 });

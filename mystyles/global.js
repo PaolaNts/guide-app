@@ -57,5 +57,16 @@ btnLoginText: {
     fontWeight:'300',
     paddingBottom: 10,
   },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 18 },
+  loadingText: { marginTop: 10, color: "#6B7280", fontWeight: "700" },
+  emptyTitle: { marginTop: 8, fontSize: 16, fontWeight: "900", color: "#111827" },
+  backBtn: {
+    marginTop: 14,
+    backgroundColor: "#111827",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+  },
+  backText: { color: "#fff", fontWeight: "900" },
 
 })
