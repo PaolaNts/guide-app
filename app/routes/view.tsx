@@ -12,7 +12,7 @@ import {
   Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "@/src/firebaseConfig";
@@ -20,6 +20,7 @@ import { shareRoute } from "../compartilhar/shareRoute";
 import { Video, Audio } from "expo-av";
 import Slider from "@react-native-community/slider";
 import { useOnline } from "@/hooks/useOnline";
+import { globalStyles } from "@/mystyles/global";
 
 type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
 type Align = "left" | "center" | "right" | "justify";
@@ -37,11 +38,19 @@ type Block = {
   };
 };
 
+type RouteStatus = "draft" | "shared" | "accepted" | "scheduled" | "completed";
+type ScheduleStatus = "none" | "pending" | "done";
+
 type RouteType = {
   id: string;
   title?: string;
   clientName?: string;
   blocks: Block[];
+  status?: RouteStatus;
+  scheduleStatus?: ScheduleStatus;
+  acceptedAt?: any;
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
   createdAt?: any;
   updatedAt?: any;
 };
@@ -182,10 +191,25 @@ export default function RouteView() {
   async function handleShare() {
     if (!route) return;
 
-    await shareRoute(route);
+    const user = getAuth().currentUser;
+    if (!user) return;
 
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await shareRoute(route);
+
+      const ref = doc(db, "users", user.uid, "routes", route.id);
+
+      await updateDoc(ref, {
+        status: "shared",
+        updatedAt: serverTimestamp(),
+      });
+
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.log("Erro ao compartilhar rota:", error);
+      setErrorMsg("Não foi possível compartilhar a rota agora.");
+    }
   }
 
   // ✅ aplica o format do Firestore (item.format)
@@ -213,6 +237,59 @@ export default function RouteView() {
 
     const fromBlocks = r.blocks?.find((b) => b.type === "title")?.content?.trim();
     return fromBlocks || "Rota sem título";
+  }
+  function getRouteStatusMeta(route: RouteType) {
+    if (route.status === "scheduled" || route.scheduleStatus === "done") {
+      return {
+        label: "Agendada",
+        backgroundColor: "#DCFCE7",
+        textColor: "#166534",
+        icon: "calendar-clear-outline" as const,
+      };
+    }
+
+    if (route.status === "accepted" && route.scheduleStatus === "pending") {
+      return {
+        label: "Aguardando agenda",
+        backgroundColor: "#FEF3C7",
+        textColor: "#92400E",
+        icon: "time-outline" as const,
+      };
+    }
+
+    if (route.status === "accepted") {
+      return {
+        label: "Aceita",
+        backgroundColor: "#DBEAFE",
+        textColor: "#1D4ED8",
+        icon: "checkmark-circle-outline" as const,
+      };
+    }
+
+    if (route.status === "shared") {
+      return {
+        label: "Compartilhada",
+        backgroundColor: "#EDE9FE",
+        textColor: "#6D28D9",
+        icon: "share-social-outline" as const,
+      };
+    }
+
+    if (route.status === "completed") {
+      return {
+        label: "Concluída",
+        backgroundColor: "#E5E7EB",
+        textColor: "#374151",
+        icon: "flag-outline" as const,
+      };
+    }
+
+    return {
+      label: "Rascunho",
+      backgroundColor: "#F3F4F6",
+      textColor: "#374151",
+      icon: "document-text-outline" as const,
+    };
   }
 
   const blocks = useMemo(() => {
@@ -305,6 +382,7 @@ export default function RouteView() {
 
   const pageTitle = getBestTitle(route);
   const client = route.clientName?.trim() || "";
+  const statusMeta = getRouteStatusMeta(route);
 
   return (
     <View style={styles.screen}>
@@ -322,8 +400,8 @@ export default function RouteView() {
         <TouchableOpacity
           onPress={() =>
             router.push({
-              pathname: "/routes/edit",
-              params: { routeId: route.id },
+              pathname: "/routes/create",
+              params: { id: route.id },
             })
           }
           style={styles.iconBtn}
@@ -347,7 +425,17 @@ export default function RouteView() {
       <View style={styles.paper}>
         <Text style={styles.pageTitle}>{pageTitle}</Text>
         {!!client && <Text style={styles.pageSubtitle}>{client}</Text>}
-
+        <View
+          style={[
+            globalStyles.statusBadge,
+            { backgroundColor: statusMeta.backgroundColor },
+          ]}
+        >
+          <Ionicons name={statusMeta.icon} size={14} color={statusMeta.textColor} />
+          <Text style={[globalStyles.statusText, { color: statusMeta.textColor }]}>
+            {statusMeta.label}
+          </Text>
+        </View>
         <View style={styles.divider} />
 
         <FlatList

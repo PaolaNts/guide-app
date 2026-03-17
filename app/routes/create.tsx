@@ -39,11 +39,19 @@ function makeId() {
   return global?.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 }
 
+type RouteStatus = "draft" | "shared" | "accepted" | "scheduled" | "completed";
+type ScheduleStatus = "none" | "pending" | "done";
+
 type RouteDoc = {
   title?: string;
   clientName?: string;
   preview?: string;
   blocks?: Block[];
+  status?: RouteStatus;
+  scheduleStatus?: ScheduleStatus;
+  acceptedAt?: any;
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
   createdAt?: any;
   updatedAt?: any;
 };
@@ -217,6 +225,13 @@ export default function CreateRoute() {
           clientName: clientName.trim(),
           preview,
           blocks: normalizedBlocks,
+
+          status: "draft",
+          scheduleStatus: "none",
+          acceptedAt: null,
+          scheduledDate: null,
+          scheduledTime: null,
+
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });

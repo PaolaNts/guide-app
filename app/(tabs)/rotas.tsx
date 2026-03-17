@@ -19,10 +19,15 @@ import {
   orderBy,
   addDoc,
   serverTimestamp,
+  getDocs,
+  where,
+  updateDoc,
 } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "@/src/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { globalStyles } from "@/mystyles/global";
 
 type Block = {
   id: string;
@@ -30,11 +35,19 @@ type Block = {
   content: string;
 };
 
+type RouteStatus = "draft" | "shared" | "accepted" | "scheduled" | "completed";
+type ScheduleStatus = "none" | "pending" | "done";
+
 type Route = {
   id: string;
   title?: string;
   clientName?: string;
   blocks: Block[];
+  status?: RouteStatus;
+  scheduleStatus?: ScheduleStatus;
+  acceptedAt?: any;
+  scheduledDate?: string | null;
+  scheduledTime?: string | null;
   createdAt?: any;
   updatedAt?: any;
 };
@@ -53,12 +66,93 @@ export default function Routes() {
     setActionRoute(route);
   }
 
+  async function syncAcceptedInvites(userUid: string) {
+    try {
+      const invitesRef = collection(db, "users", userUid, "route_invites");
+
+      const acceptedQuery = query(invitesRef, where("status", "==", "accepted"));
+      const acceptedSnapshot = await getDocs(acceptedQuery);
+
+      for (const inviteDoc of acceptedSnapshot.docs) {
+        const inviteData = inviteDoc.data();
+        const routeId = inviteData.routeId;
+
+        if (!routeId) continue;
+
+        const routeRef = doc(db, "users", userUid, "routes", routeId);
+
+        await updateDoc(routeRef, {
+          status: "accepted",
+          scheduleStatus: "pending",
+          acceptedAt: inviteData.respondedAt ?? serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.log("Erro ao sincronizar convites aceitos:", error);
+    }
+  }
+
   function getBestTitle(route: Route) {
     const t = route.title?.trim();
     if (t) return t;
 
     const fromBlocks = route.blocks?.find((b) => b.type === "title")?.content?.trim();
     return fromBlocks || "Rota sem título";
+  }
+
+  function getRouteStatusMeta(route: Route) {
+    if (route.status === "scheduled" || route.scheduleStatus === "done") {
+      return {
+        label: "Agendada",
+        backgroundColor: "#DCFCE7",
+        textColor: "#166534",
+        icon: "calendar-clear-outline" as const,
+      };
+    }
+
+    if (route.status === "accepted" && route.scheduleStatus === "pending") {
+      return {
+        label: "Aguardando agenda",
+        backgroundColor: "#FEF3C7",
+        textColor: "#92400E",
+        icon: "time-outline" as const,
+      };
+    }
+
+    if (route.status === "accepted") {
+      return {
+        label: "Aceita",
+        backgroundColor: "#DBEAFE",
+        textColor: "#1D4ED8",
+        icon: "checkmark-circle-outline" as const,
+      };
+    }
+
+    if (route.status === "shared") {
+      return {
+        label: "Compartilhada",
+        backgroundColor: "#EDE9FE",
+        textColor: "#6D28D9",
+        icon: "share-social-outline" as const,
+      };
+    }
+
+    if (route.status === "completed") {
+      return {
+        label: "Concluída",
+        backgroundColor: "#E5E7EB",
+        textColor: "#374151",
+        icon: "flag-outline" as const,
+      };
+    }
+
+    return {
+      label: "Rascunho",
+      backgroundColor: "#F3F4F6",
+      textColor: "#374151",
+      icon: "document-text-outline" as const,
+    };
   }
 
   function formatDateTime(ts: any) {
@@ -69,7 +163,11 @@ export default function Routes() {
         new Date();
 
       const date = d.toLocaleDateString("pt-BR");
-      const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const time = d.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
       return { date, time };
     } catch {
       return { date: "—", time: "—" };
@@ -77,38 +175,62 @@ export default function Routes() {
   }
 
   useEffect(() => {
-    const user = getAuth().currentUser;
-    if (!user) return;
+    const auth = getAuth();
 
-    const q = query(
-      collection(db, "users", user.uid, "routes"),
-      orderBy("createdAt", "desc")
-    );
+    let unsubscribeRoutes: (() => void) | null = null;
 
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({
-          ...(d.data() as Omit<Route, "id">),
-          id: d.id, // ✅ garante o id do doc
-        }));
-        setRoutes(data);
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeRoutes) {
+        unsubscribeRoutes();
+        unsubscribeRoutes = null;
+      }
+
+      if (!user) {
+        setRoutes([]);
         setLoading(false);
-      },
-      () => setLoading(false)
-    );
+        return;
+      }
 
-    return () => unsub();
+      syncAcceptedInvites(user.uid);
+
+      setLoading(true);
+
+      const q = query(
+        collection(db, "users", user.uid, "routes"),
+        orderBy("createdAt", "desc")
+      );
+
+      unsubscribeRoutes = onSnapshot(
+        q,
+        (snapshot) => {
+          const data = snapshot.docs.map((d) => ({
+            ...(d.data() as Omit<Route, "id">),
+            id: d.id,
+          }));
+
+          setRoutes(data);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("Erro ao carregar rotas:", error);
+          setLoading(false);
+        }
+      );
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeRoutes) unsubscribeRoutes();
+    };
   }, []);
 
-  // ✅ EDITAR -> agora passa { id } (o create.tsx vai ler id)
   function handleEdit(id: string) {
     router.push({ pathname: "/routes/create", params: { id } });
   }
 
   function handleView(id: string) {
     setActionRoute(null);
-    router.push({ pathname: "/routes/view", params: { routeId: id } }); // mantém como está (se seu view usa routeId)
+    router.push({ pathname: "/routes/view", params: { routeId: id } });
   }
 
   async function handleClone(route: Route) {
@@ -119,20 +241,23 @@ export default function Routes() {
       setActionRoute(null);
       setCloning(true);
 
-      const { id: _oldId, ...rest } = route;
       const title = getBestTitle(route);
 
       const cloned: Omit<Route, "id"> = {
-        ...rest,
         title: `${title} (cópia)`,
+        clientName: route.clientName ?? "",
         blocks: Array.isArray(route.blocks) ? route.blocks : [],
+        status: "draft",
+        scheduleStatus: "none",
+        acceptedAt: null,
+        scheduledDate: null,
+        scheduledTime: null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
       const ref = await addDoc(collection(db, "users", user.uid, "routes"), cloned);
 
-      // ✅ depois de clonar abre o MESMO create.tsx em modo edição
       router.push({ pathname: "/routes/create", params: { id: ref.id } });
     } finally {
       setCloning(false);
@@ -154,16 +279,16 @@ export default function Routes() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
+      <SafeAreaView style={[styles.screen, styles.center]} edges={["top"]}>
         <ActivityIndicator />
         <Text style={styles.loadingText}>Carregando rotas…</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (routes.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
+      <SafeAreaView style={[styles.screen, styles.emptyContainer]} edges={["top"]}>
         <View style={styles.emptyIcon}>
           <Ionicons name="map-outline" size={26} color="#111827" />
         </View>
@@ -181,13 +306,12 @@ export default function Routes() {
           <Ionicons name="add-circle-outline" size={20} color="#fff" />
           <Text style={styles.primaryButtonText}>Criar nova rota</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      {/* Header */}
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>{headerTitle}</Text>
@@ -203,6 +327,7 @@ export default function Routes() {
           const { date, time } = formatDateTime(item.createdAt);
           const title = getBestTitle(item);
           const client = item.clientName?.trim() || "Cliente não informado";
+          const statusMeta = getRouteStatusMeta(item);
 
           return (
             <TouchableOpacity
@@ -210,7 +335,6 @@ export default function Routes() {
               style={styles.card}
               activeOpacity={0.9}
             >
-              {/* ESQUERDA */}
               <View style={styles.cardLeft}>
                 <Text style={styles.cardTitle} numberOfLines={2}>
                   {title}
@@ -219,6 +343,27 @@ export default function Routes() {
                 <Text style={styles.cardSubtitle} numberOfLines={1}>
                   {client}
                 </Text>
+
+                <View
+                  style={[
+                    globalStyles.statusBadge,
+                    { backgroundColor: statusMeta.backgroundColor },
+                  ]}
+                >
+                  <Ionicons
+                    name={statusMeta.icon}
+                    size={14}
+                    color={statusMeta.textColor}
+                  />
+                  <Text
+                    style={[
+                      globalStyles.statusText,
+                      { color: statusMeta.textColor },
+                    ]}
+                  >
+                    {statusMeta.label}
+                  </Text>
+                </View>
 
                 <View style={styles.metaRow}>
                   <View style={styles.metaPill}>
@@ -233,7 +378,6 @@ export default function Routes() {
                 </View>
               </View>
 
-              {/* DIREITA */}
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   onPress={() => handleEdit(item.id)}
@@ -267,7 +411,6 @@ export default function Routes() {
         }}
       />
 
-      {/* FAB */}
       <TouchableOpacity
         onPress={() => router.push("../routes/create")}
         style={styles.fab}
@@ -276,7 +419,6 @@ export default function Routes() {
         <Ionicons name="add" size={26} color="#fff" />
       </TouchableOpacity>
 
-      {/* Confirm delete modal */}
       <Modal transparent visible={!!deleteId} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setDeleteId(null)}>
           <Pressable style={styles.modalBox} onPress={() => {}}>
@@ -303,7 +445,6 @@ export default function Routes() {
         </Pressable>
       </Modal>
 
-      {/* Action modal (chevron) */}
       <Modal transparent visible={!!actionRoute} animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setActionRoute(null)}>
           <Pressable style={styles.modalBox} onPress={() => {}}>
@@ -351,7 +492,7 @@ export default function Routes() {
           </Pressable>
         </Pressable>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -360,7 +501,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F8FAFC",
     paddingHorizontal: 10,
-    paddingTop: 10,
   },
 
   header: {
@@ -375,7 +515,12 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { marginTop: 10, color: "#6B7280", fontWeight: "600" },
 
-  emptyContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
   emptyIcon: {
     width: 56,
     height: 56,
@@ -388,7 +533,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   emptyTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  emptyText: { marginTop: 8, color: "#6B7280", textAlign: "center", fontWeight: "600" },
+  emptyText: {
+    marginTop: 8,
+    color: "#6B7280",
+    textAlign: "center",
+    fontWeight: "600",
+  },
 
   primaryButton: {
     marginTop: 16,
@@ -486,7 +636,12 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   modalTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
   modalText: { marginTop: 10, color: "#6B7280", fontWeight: "600" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 18 },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 18,
+  },
 
   cancelButton: { paddingVertical: 10, paddingHorizontal: 12 },
   cancelText: { fontWeight: "800", color: "#374151" },

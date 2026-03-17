@@ -7,6 +7,7 @@ import {
   getDocs,
   deleteDoc,
   doc,
+  updateDoc,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { db } from "@/src/firebaseConfig";
@@ -14,7 +15,7 @@ import * as Clipboard from "expo-clipboard";
 
 export async function shareRoute(route: any) {
   const user = getAuth().currentUser;
-  if (!user) return;
+  if (!user) return null;
 
   const invitesRef = collection(db, "users", user.uid, "route_invites");
 
@@ -56,7 +57,14 @@ export async function shareRoute(route: any) {
     },
   });
 
+  await updateDoc(doc(db, "users", user.uid, "routes", route.id), {
+    status: "shared",
+    updatedAt: serverTimestamp(),
+  });
+
   const link = `https://guia-projeto-vinho.web.app/invite/${user.uid}/${docRef.id}`;
 
   await Clipboard.setStringAsync(link);
+
+  return link;
 }

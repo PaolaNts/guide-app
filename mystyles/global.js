@@ -68,5 +68,20 @@ btnLoginText: {
     borderRadius: 12,
   },
   backText: { color: "#fff", fontWeight: "900" },
+  statusBadge: {
+  marginTop: 10,
+  alignSelf: "flex-start",
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 6,
+  paddingVertical: 6,
+  paddingHorizontal: 10,
+  borderRadius: 999,
+},
+
+statusText: {
+  fontSize: 12,
+  fontWeight: "800",
+},
 
 })

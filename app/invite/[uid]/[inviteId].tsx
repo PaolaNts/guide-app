@@ -33,8 +33,13 @@ type Block = {
   };
 };
 
+type InviteStatus = "pending" | "accepted" | "declined";
+type RouteStatus = "draft" | "shared" | "accepted" | "scheduled" | "completed";
+type ScheduleStatus = "none" | "pending" | "done";
+
 type InviteData = {
-  status?: "pending" | "accepted" | "declined";
+  status?: InviteStatus;
+  routeId?: string;
   routeSnapshot?: {
     title?: string;
     clientName?: string;
@@ -129,12 +134,14 @@ function AudioPlayer({ uri }: { uri: string }) {
     setIsPlaying(false);
     setPositionMillis(0);
     setDurationMillis(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
 
   useEffect(() => {
     return () => {
       unloadSound();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const ratio = Math.min(1, Math.max(0, positionMillis / (durationMillis || 1)));
@@ -181,6 +188,7 @@ export default function InvitePage() {
 
   const [invite, setInvite] = useState<InviteData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -211,13 +219,15 @@ export default function InvitePage() {
     load();
   }, [uidStr, inviteIdStr]);
 
-  async function respond(status: "accepted" | "declined") {
+ async function respond(status: "accepted" | "declined") {
     try {
-      if (!uidStr || !inviteIdStr) return;
+      if (!uidStr || !inviteIdStr || submitting) return;
 
-      const ref = doc(db, "users", uidStr, "route_invites", inviteIdStr);
+      setSubmitting(true);
 
-      await updateDoc(ref, {
+      const inviteRef = doc(db, "users", uidStr, "route_invites", inviteIdStr);
+
+      await updateDoc(inviteRef, {
         status,
         respondedAt: serverTimestamp(),
       });
@@ -225,6 +235,8 @@ export default function InvitePage() {
       setInvite((prev) => (prev ? { ...prev, status } : prev));
     } catch (error) {
       console.log("Erro ao responder convite:", error);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -248,8 +260,8 @@ export default function InvitePage() {
   }
 
   function inferType(item: Block): BlockType {
-  const explicit = item.type;
-  const uri = String(item.content || "").trim().toLowerCase();
+    const explicit = item.type;
+    const uri = String(item.content || "").trim().toLowerCase();
 
     if (explicit === "image" || explicit === "video" || explicit === "audio") {
       return explicit;
@@ -261,7 +273,6 @@ export default function InvitePage() {
 
     if (!uri) return "text";
 
-    // Cloudinary
     if (uri.includes("/image/upload/")) return "image";
 
     if (uri.includes("/video/upload/")) {
@@ -279,7 +290,6 @@ export default function InvitePage() {
 
     if (uri.includes("/raw/upload/")) return "audio";
 
-    // extensões gerais
     if (
       uri.includes(".jpg") ||
       uri.includes(".jpeg") ||
@@ -313,6 +323,7 @@ export default function InvitePage() {
 
     return "text";
   }
+
   function renderWebImage(uri: string, key: string) {
     return (
       <View key={key} style={styles.mediaWrap}>
@@ -495,24 +506,24 @@ export default function InvitePage() {
       {invite.status === "pending" ? (
         <View style={styles.actions}>
           <TouchableOpacity
-            style={[styles.btn, styles.accept]}
+            style={[styles.btn, styles.accept, submitting && styles.btnDisabled]}
             onPress={() => respond("accepted")}
+            disabled={submitting}
           >
-            <Text style={styles.btnText}>Aceitar</Text>
-            
+            <Text style={styles.btnText}>{submitting ? "Enviando..." : "Aceitar"}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.btn, styles.decline]}
+            style={[styles.btn, styles.decline, submitting && styles.btnDisabled]}
             onPress={() => respond("declined")}
+            disabled={submitting}
           >
-            <Text style={styles.btnText}>Recusar</Text>
+            <Text style={styles.btnText}>{submitting ? "Enviando..." : "Recusar"}</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <Text style={styles.status}>
           {invite.status === "accepted" ? "Rota aceita ✅" : "Rota recusada ❌"}
-          
         </Text>
       )}
     </ScrollView>
@@ -696,6 +707,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",
+  },
+
+  btnDisabled: {
+    opacity: 0.7,
   },
 
   accept: {
