@@ -12,14 +12,12 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  Alert,
+  ScrollView,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { signOut } from "firebase/auth";
 import { auth } from "../../src/firebaseConfig";
-
-
-
-
 
 const PROFILE_FLAG_KEY = "@profile_configured";
 
@@ -42,8 +40,23 @@ export default function HomeScreen() {
   const [fullName, setFullName] = useState("");
   const [selectedAreas, setSelectedAreas] = useState<TourismArea[]>([]);
   const [saving, setSaving] = useState(false);
-
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const [debugMsg, setDebugMsg] = useState("Tela iniciou");
+  const [debugSteps, setDebugSteps] = useState<string[]>([]);
+
+  const params = useLocalSearchParams<{ editProfile?: string }>();
+
+  function addDebug(message: string) {
+    const line = `${new Date().toLocaleTimeString("pt-BR")} - ${message}`;
+    setDebugMsg(message);
+    setDebugSteps((prev) => [...prev, line]);
+  }
+
+  function clearDebug() {
+    setDebugMsg("Logs limpos");
+    setDebugSteps([]);
+  }
 
   const areas: TourismArea[] = useMemo(
     () => [
@@ -62,137 +75,278 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
+    addDebug("useEffect executou");
+
     (async () => {
-      setErrorMsg(null);
+      try {
+        setErrorMsg(null);
 
-      const user = auth.currentUser;
-      if (!user) return;
+        const user = auth.currentUser;
+        addDebug(`Usuário atual: ${user ? user.uid : "nenhum"}`);
 
-      const configured = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
-      if (!configured) {
-        setProfileModalVisible(true);
+        if (!user) {
+          addDebug("Saiu do useEffect porque não há usuário");
+          return;
+        }
+
+        const configured = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
+        addDebug(`AsyncStorage PROFILE_FLAG_KEY: ${configured ?? "null"}`);
+
+        if (!configured) {
+          addDebug("Abrindo modal porque não encontrou configuração");
+          setProfileModalVisible(true);
+        } else {
+          addDebug("Perfil já configurado, não abriu modal");
+        }
+      } catch (err) {
+        addDebug(`Erro no useEffect: ${String(err)}`);
+        setErrorMsg(`Erro no carregamento inicial: ${String(err)}`);
       }
     })();
   }, []);
 
   function toggleArea(area: TourismArea) {
+    addDebug(`Clicou na área: ${area}`);
+
     setSelectedAreas((prev) => {
-      if (prev.includes(area)) return prev.filter((a) => a !== area);
+      if (prev.includes(area)) {
+        addDebug(`Removeu área: ${area}`);
+        return prev.filter((a) => a !== area);
+      }
+
+      addDebug(`Adicionou área: ${area}`);
       return [...prev, area];
     });
   }
 
   function validate() {
     const name = fullName.trim();
+
     if (name.length < 3) return "Digite seu nome completo.";
     if (selectedAreas.length === 0) return "Selecione pelo menos uma área de atuação.";
+
     return null;
   }
 
   async function handleSaveProfile() {
+    addDebug("Entrou no handleSaveProfile");
     setErrorMsg(null);
 
     const user = auth.currentUser;
+    addDebug(`User no save: ${user ? user.uid : "nenhum"}`);
+
     if (!user) {
+      addDebug("Bloqueou save porque não há usuário");
       setErrorMsg("Você precisa estar logada para configurar o perfil.");
       return;
     }
 
     const validationError = validate();
     if (validationError) {
+      addDebug(`Erro de validação: ${validationError}`);
       setErrorMsg(validationError);
       return;
     }
 
     try {
       setSaving(true);
+      addDebug("Iniciando salvamento no Firestore");
 
       const uid = user.uid;
-      await setDoc(
-        doc(db, "users", uid),
-        {
-          fullName: fullName.trim(),
-          tourismAreas: selectedAreas,
-          profileConfigured: true,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+
+      const payload = {
+        fullName: fullName.trim(),
+        tourismAreas: selectedAreas,
+        profileConfigured: true,
+        updatedAt: serverTimestamp(),
+      };
+
+      addDebug(`Payload montado para uid ${uid}`);
+
+      await setDoc(doc(db, "users", uid), payload, { merge: true });
+
+      addDebug("setDoc executou com sucesso");
 
       await AsyncStorage.setItem(PROFILE_FLAG_KEY, "1");
+      addDebug("AsyncStorage PROFILE_FLAG_KEY salvo com valor 1");
+
       setProfileModalVisible(false);
+      addDebug("Modal fechado com sucesso");
     } catch (err) {
-      setErrorMsg("Não foi possível salvar agora. Tente novamente.");
+      addDebug(`Erro no handleSaveProfile: ${String(err)}`);
+      setErrorMsg(`Não foi possível salvar agora. Detalhe: ${String(err)}`);
+      Alert.alert("ERRO", String(err));
     } finally {
       setSaving(false);
+      addDebug("Finalizou handleSaveProfile");
     }
   }
 
   async function handleLogout() {
     setErrorMsg(null);
+    addDebug("Entrou no handleLogout");
+
     try {
       await signOut(auth);
-      router.replace("/"); // ajuste sua rota
-    } catch {
+      addDebug("Logout realizado");
+      router.replace("/");
+    } catch (err) {
+      addDebug(`Erro no logout: ${String(err)}`);
       setErrorMsg("Não foi possível sair agora.");
     }
   }
- const params = useLocalSearchParams<{ editProfile?: string }>();
 
   useFocusEffect(
     useCallback(() => {
+      addDebug("useFocusEffect executou");
+
       const user = auth.currentUser;
-      if (!user) return;
+      addDebug(`User no focus: ${user ? user.uid : "nenhum"}`);
 
-      // 1) Primeira vez: se não configurou, abre
-      // 2) Edição: se veio editProfile=1, abre também
+      if (!user) {
+        addDebug("Saiu do focus porque não há usuário");
+        return;
+      }
+
       (async () => {
-        const configured = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
+        try {
+          const configured = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
+          addDebug(`Focus AsyncStorage PROFILE_FLAG_KEY: ${configured ?? "null"}`);
+          addDebug(`Param editProfile: ${params.editProfile ?? "undefined"}`);
 
-        if (!configured || params.editProfile === "1") {
-          // (recomendado) preencher campos quando for editar
-          if (params.editProfile === "1") {
-            try {
-              const snap = await getDoc(doc(db, "users", user.uid));
-              if (snap.exists()) {
-                const data = snap.data();
-                setFullName(String(data.fullName ?? ""));
-                setSelectedAreas((data.tourismAreas ?? []) as TourismArea[]);
+          if (!configured || params.editProfile === "1") {
+            addDebug("Vai abrir modal via focus");
+
+            if (params.editProfile === "1") {
+              try {
+                addDebug("Tentando carregar dados do Firestore para edição");
+                const snap = await getDoc(doc(db, "users", user.uid));
+
+                if (snap.exists()) {
+                  const data = snap.data();
+                  addDebug("Documento do usuário encontrado no Firestore");
+                  setFullName(String(data.fullName ?? ""));
+                  setSelectedAreas((data.tourismAreas ?? []) as TourismArea[]);
+                } else {
+                  addDebug("Documento do usuário não existe no Firestore");
+                }
+              } catch (err) {
+                addDebug(`Erro ao carregar dados para edição: ${String(err)}`);
               }
-            } catch {
-              // se falhar, abre mesmo assim
             }
-          }
 
-          setProfileModalVisible(true);
+            setProfileModalVisible(true);
+            addDebug("Modal aberto pelo focus");
 
-          // limpa o param pra não ficar abrindo sempre
-          if (params.editProfile === "1") {
-            router.setParams({ editProfile: undefined });
+            if (params.editProfile === "1") {
+              router.setParams({ editProfile: undefined });
+              addDebug("Limpou param editProfile");
+            }
+          } else {
+            addDebug("Não abriu modal no focus");
           }
+        } catch (err) {
+          addDebug(`Erro no useFocusEffect: ${String(err)}`);
         }
       })();
     }, [params.editProfile, db])
   );
 
-
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Home</Text>
+
+      <Text style={styles.debugTitle}>Debug atual:</Text>
+      <Text style={styles.debugBox}>{debugMsg}</Text>
+
+      <View style={styles.debugHeaderRow}>
+        <Text style={styles.debugTitle}>Passos executados:</Text>
+        <TouchableOpacity style={styles.clearButton} onPress={clearDebug}>
+          <Text style={styles.clearButtonText}>Limpar logs</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.debugList}>
+        {debugSteps.length === 0 ? (
+          <Text style={styles.debugEmpty}>Sem logs no momento</Text>
+        ) : (
+          debugSteps.map((item, index) => (
+            <Text key={`${item}-${index}`} style={styles.debugItem}>
+              {item}
+            </Text>
+          ))
+        )}
+      </View>
 
       {!!errorMsg && <Text style={styles.error}>{errorMsg}</Text>}
 
-      
+      <TouchableOpacity
+        style={styles.testButton}
+        onPress={() => {
+          Alert.alert("DEBUG", "Botão de teste clicado");
+          addDebug("Botão de teste clicado");
+        }}
+      >
+        <Text style={styles.buttonText}>Testar alerta</Text>
+      </TouchableOpacity>
 
-      {/* MODAL DE PERFIL (abre só na 1ª vez) */}
+      <TouchableOpacity
+        style={styles.testButton}
+        onPress={async () => {
+          const value = await AsyncStorage.getItem(PROFILE_FLAG_KEY);
+          Alert.alert("AsyncStorage", String(value));
+          addDebug(`Leitura manual AsyncStorage: ${value ?? "null"}`);
+        }}
+      >
+        <Text style={styles.buttonText}>Ver AsyncStorage</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.testButton}
+        onPress={async () => {
+          await AsyncStorage.removeItem(PROFILE_FLAG_KEY);
+          addDebug("Removido PROFILE_FLAG_KEY do AsyncStorage");
+          Alert.alert("DEBUG", "Flag removida");
+        }}
+      >
+        <Text style={styles.buttonText}>Limpar AsyncStorage</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.testButton}
+        onPress={async () => {
+          try {
+            await AsyncStorage.clear();
+            addDebug("AsyncStorage LIMPO COMPLETAMENTE");
+            Alert.alert("DEBUG", "AsyncStorage limpo");
+          } catch (err) {
+            addDebug(`Erro ao limpar AsyncStorage: ${String(err)}`);
+            Alert.alert("ERRO", String(err));
+          }
+        }}
+      >
+        <Text style={styles.buttonText}>Limpar AsyncStorage (tudo)</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.testButton}
+        onPress={() => {
+          addDebug("Abrindo modal manualmente");
+          setProfileModalVisible(true);
+        }}
+      >
+        <Text style={styles.buttonText}>Abrir modal manualmente</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.testButton} onPress={handleLogout}>
+        <Text style={styles.buttonText}>Sair</Text>
+      </TouchableOpacity>
+
       <Modal
         visible={profileModalVisible}
         animationType="slide"
         transparent
-        onRequestClose={() => {
-          // Se você quiser forçar a configurar, NÃO permita fechar.
-          // Deixe vazio pra não fechar via botão "voltar" no Android.
-        }}
+        onRequestClose={() => {}}
       >
         <Pressable style={styles.backdrop}>
           <View style={styles.modalCard}>
@@ -204,7 +358,10 @@ export default function HomeScreen() {
             <Text style={styles.label}>Nome completo</Text>
             <TextInput
               value={fullName}
-              onChangeText={setFullName}
+              onChangeText={(text) => {
+                setFullName(text);
+                addDebug(`Digitando nome: ${text}`);
+              }}
               placeholder="Ex.: Paola Nastasio"
               style={styles.input}
               autoCapitalize="words"
@@ -244,23 +401,84 @@ export default function HomeScreen() {
                 <Text style={styles.buttonText}>Salvar</Text>
               )}
             </TouchableOpacity>
-
-            {/* Se você quiser permitir "configurar depois", pode colocar um botão aqui.
-                Mas você disse que quer aparecer só uma vez e depois não abrir mais.
-                Então, ideal é obrigar a salvar para fechar.
-            */}
           </View>
         </Pressable>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  error: { marginTop: 10, color: "#b00020" },
-
+  container: {
+    flexGrow: 1,
+    padding: 16,
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#111827",
+  },
+  error: {
+    marginTop: 10,
+    color: "#b00020",
+    fontWeight: "600",
+  },
+  debugHeaderRow: {
+    marginTop: 12,
+    marginBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  debugTitle: {
+    fontWeight: "800",
+    color: "#111827",
+  },
+  debugBox: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 10,
+    padding: 10,
+    color: "#111827",
+  },
+  debugList: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    maxHeight: 260,
+  },
+  debugItem: {
+    color: "#374151",
+    marginBottom: 4,
+    fontSize: 12,
+  },
+  debugEmpty: {
+    color: "#6b7280",
+    fontSize: 12,
+  },
+  clearButton: {
+    backgroundColor: "#dc2626",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  clearButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  testButton: {
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+  },
   button: {
     marginTop: 16,
     paddingVertical: 12,
@@ -269,9 +487,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#111827",
     alignItems: "center",
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: "white", fontWeight: "700" },
-
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  buttonText: {
+    color: "white",
+    fontWeight: "700",
+  },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -283,10 +505,21 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  modalTitle: { fontSize: 18, fontWeight: "800" },
-  modalSubtitle: { marginTop: 6, opacity: 0.75 },
-
-  label: { marginTop: 14, fontWeight: "700" },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  modalSubtitle: {
+    marginTop: 6,
+    opacity: 0.75,
+    color: "#374151",
+  },
+  label: {
+    marginTop: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
   input: {
     marginTop: 8,
     borderWidth: 1,
@@ -294,10 +527,14 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color:'#0a0a0a'
+    color: "#0a0a0a",
   },
-
-  chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  chipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
   chip: {
     borderWidth: 1,
     borderColor: "#d1d5db",
@@ -309,6 +546,11 @@ const styles = StyleSheet.create({
     borderColor: "#111827",
     backgroundColor: "#111827",
   },
-  chipText: { color: "#111827", fontWeight: "600" },
-  chipTextActive: { color: "white" },
+  chipText: {
+    color: "#111827",
+    fontWeight: "600",
+  },
+  chipTextActive: {
+    color: "white",
+  },
 });

@@ -1,5 +1,5 @@
 import { db } from "@/src/firebaseConfig";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getAuth } from "firebase/auth";
@@ -25,14 +25,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import BlockEditorItem, { Block, BlockType } from "../../components/BlockEditorItem";
+import BlockEditorItem, { Align, Block, BlockType } from "../../components/BlockEditorItem";
 
 import { uploadMediaCloudinary } from "@/src/services/uploadMediaCloudinary";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnline } from "@/hooks/useOnline";
-import { globalStyles } from '@/mystyles/global'
+import { globalStyles } from "@/mystyles/global";
+import Slider from "@react-native-community/slider";
 
 function makeId() {
   // @ts-ignore
@@ -56,31 +57,43 @@ type RouteDoc = {
   updatedAt?: any;
 };
 
+type CarouselImage = {
+  id: string;
+  url: string;
+  publicId: string | null;
+};
+
+const MIN_FONT_SIZE = 12;
+const MAX_FONT_SIZE = 28;
+
+const clamp = (value: number, min: number, max: number) => {
+  return Math.min(Math.max(value, min), max);
+};
+
 export default function CreateRoute() {
   const router = useRouter();
+  const isOnline = useOnline();
 
-  const  isOnline  = useOnline(); 
-
-  // ✅ se vier id, é edição
   const { id } = useLocalSearchParams<{ id?: string }>();
   const isEdit = !!id;
 
-  // ✅ agora esses dados NÃO ficam fixos na tela — só no modal antes de salvar
   const [routeTitle, setRouteTitle] = useState("");
   const [clientName, setClientName] = useState("");
   const [metaOpen, setMetaOpen] = useState(false);
 
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [showOptions, setShowOptions] = useState(false);
+  const [settingsBlockId, setSettingsBlockId] = useState<string | null>(null);
 
   const [msg, setMsg] = useState<string | null>(null);
 
-  // ✅ separa os carregamentos
-  const [isSaving, setIsSaving] = useState(false); // salvar (Firestore)
-  const [isUploading, setIsUploading] = useState(false); // upload mídia
-  const [isLoadingRoute, setIsLoadingRoute] = useState(false); // carregar rota p/ editar
+  const MAX_CAROUSEL_IMAGES = 6;
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isLoadingRoute, setIsLoadingRoute] = useState(false);
   const insets = useSafeAreaInsets();
-  const BOTTOM_BAR_HEIGHT = 72; // altura do dock (aprox)
+  const BOTTOM_BAR_HEIGHT = 72;
 
   async function ensureLogged() {
     const auth = getAuth();
@@ -92,7 +105,6 @@ export default function CreateRoute() {
     return user;
   }
 
-  // ✅ se for editar, carrega do Firestore
   useEffect(() => {
     if (!isEdit || !isOnline) return;
 
@@ -121,12 +133,13 @@ export default function CreateRoute() {
           id: b.id ?? makeId(),
           type: b.type,
           content: b.content ?? "",
+          publicId: b.publicId,
           format: {
             align: b.format?.align ?? "left",
             bold: !!b.format?.bold,
             italic: !!b.format?.italic,
             underline: !!b.format?.underline,
-            size: b.format?.size ?? "md",
+            size: b.format?.size ?? 16,
           },
         }));
 
@@ -140,8 +153,7 @@ export default function CreateRoute() {
     };
 
     run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, isOnline]);
+  }, [id, isEdit, isOnline]);
 
   function addBlock(type: BlockType) {
     setMsg(null);
@@ -151,9 +163,10 @@ export default function CreateRoute() {
         id: makeId(),
         type,
         content: "",
-        format: { align: "left", bold: false, italic: false, underline: false, size: "md" },
+        format: { align: "left", bold: false, italic: false, underline: false, size: 16 },
       },
     ]);
+    setShowOptions(false);
   }
 
   function updateBlock(id: string, value: string) {
@@ -175,27 +188,82 @@ export default function CreateRoute() {
     });
   }
 
+  function updateBlockFormat(
+    id: string,
+    patch: Partial<NonNullable<Block["format"]>>
+  ) {
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              format: {
+                align: "left",
+                bold: false,
+                italic: false,
+                underline: false,
+                size: 16,
+                ...b.format,
+                ...patch,
+              },
+            }
+          : b
+      )
+    );
+  }
+
   const normalizedBlocks = useMemo(() => {
     return blocks
       .map((b) => ({
         ...b,
-        content: (b.content ?? "").trim(),
+        content: typeof b.content === "string" ? b.content.trim() : "",
         format: {
           align: b.format?.align ?? "left",
           bold: !!b.format?.bold,
           italic: !!b.format?.italic,
           underline: !!b.format?.underline,
-          size: b.format?.size ?? "md",
+          size: b.format?.size ?? 16,
         },
       }))
-      .filter((b) => b.content.length > 0);
+      .filter((b) => {
+        if (b.type === "image" || b.type === "video" || b.type === "audio" || b.type === "carousel") {
+          return !!b.content;
+        }
+        return b.content.length > 0;
+      });
   }, [blocks]);
 
-  // ✅ agora o salvar só depende de ter blocos e não estar ocupado
-  // (o título/cliente vão ser validados dentro do modal antes de chamar saveRoute)
   const canSave = useMemo(() => {
     return normalizedBlocks.length > 0 && !isSaving && !isUploading && !isLoadingRoute;
   }, [normalizedBlocks.length, isSaving, isUploading, isLoadingRoute]);
+
+  const selectedBlock = useMemo(
+    () => blocks.find((b) => b.id === settingsBlockId) ?? null,
+    [blocks, settingsBlockId]
+  );
+
+  const selectedAlign: Align = selectedBlock?.format?.align ?? "left";
+  const selectedBold = !!selectedBlock?.format?.bold;
+  const selectedItalic = !!selectedBlock?.format?.italic;
+  const selectedUnderline = !!selectedBlock?.format?.underline;
+
+  const selectedDefaultFontSize =
+    selectedBlock?.type === "title"
+      ? 20
+      : selectedBlock?.type === "description"
+      ? 15
+      : 16;
+
+  const selectedFontSize = clamp(
+    selectedBlock?.format?.size ?? selectedDefaultFontSize,
+    MIN_FONT_SIZE,
+    MAX_FONT_SIZE
+  );
+
+  const selectedIsTextual =
+    selectedBlock?.type === "title" ||
+    selectedBlock?.type === "text" ||
+    selectedBlock?.type === "description";
 
   async function saveRoute() {
     setMsg(null);
@@ -225,13 +293,11 @@ export default function CreateRoute() {
           clientName: clientName.trim(),
           preview,
           blocks: normalizedBlocks,
-
           status: "draft",
           scheduleStatus: "none",
           acceptedAt: null,
           scheduledDate: null,
           scheduledTime: null,
-
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -255,16 +321,94 @@ export default function CreateRoute() {
     }
   }
 
-  function pushMediaBlock(type: "image" | "video" | "audio", url: string) {
+  function pushMediaBlock(type: "image" | "video" | "audio", url: string, publicId?: string) {
     setBlocks((prev) => [
       ...prev,
       {
         id: makeId(),
         type,
         content: url,
-        format: { align: "left", bold: false, italic: false, underline: false, size: "md" },
+        publicId,
+        format: { align: "left", bold: false, italic: false, underline: false, size: 16 },
       },
     ]);
+  }
+
+  async function addCarouselBlock() {
+    setMsg(null);
+
+    const user = await ensureLogged();
+    if (!user) return;
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setMsg("Permissão de galeria negada.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        selectionLimit: MAX_CAROUSEL_IMAGES,
+        quality: 0.8,
+        orderedSelection: true,
+      });
+
+      const assets = result.assets ?? [];
+
+      if (assets.length === 0) {
+        setMsg("Nenhuma imagem selecionada.");
+        return;
+      }
+
+      if (assets.length > MAX_CAROUSEL_IMAGES) {
+        setMsg(`Selecione no máximo ${MAX_CAROUSEL_IMAGES} imagens por carrossel.`);
+        return;
+      }
+
+      setIsUploading(true);
+
+      const uploadedImages: CarouselImage[] = [];
+
+      for (const asset of assets) {
+        const uri = asset.uri;
+
+        const { url, publicId } = await uploadMediaCloudinary({
+          uri,
+          kind: "photos",
+        });
+
+        uploadedImages.push({
+          id: makeId(),
+          url,
+          publicId: publicId ?? null,
+        });
+      }
+
+      setBlocks((prev) => [
+        ...prev,
+        {
+          id: makeId(),
+          type: "carousel",
+          content: JSON.stringify(uploadedImages),
+          format: {
+            align: "left",
+            bold: false,
+            italic: false,
+            underline: false,
+            size: 16,
+          },
+        },
+      ]);
+
+      setShowOptions(false);
+    } catch (e: any) {
+      console.log("Erro upload carrossel:", e);
+      setMsg(e?.message ? String(e.message) : "Erro ao enviar imagens do carrossel.");
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   async function addImageBlock() {
@@ -290,12 +434,13 @@ export default function CreateRoute() {
 
       setIsUploading(true);
 
-      const { url } = await uploadMediaCloudinary({
+      const { url, publicId } = await uploadMediaCloudinary({
         uri,
         kind: "photos",
       });
 
-      pushMediaBlock("image", url);
+      pushMediaBlock("image", url, publicId);
+      setShowOptions(false);
     } catch (e: any) {
       console.log("Erro upload imagem:", e);
       setMsg(e?.message ? String(e.message) : "Erro ao enviar imagem.");
@@ -377,8 +522,6 @@ export default function CreateRoute() {
 
   const isBusy = isSaving || isUploading || isLoadingRoute;
 
-
-
   if (!isOnline) {
     return (
       <View style={globalStyles.center}>
@@ -400,260 +543,399 @@ export default function CreateRoute() {
   }
 
   return (
-  <KeyboardAvoidingView
-    style={{ flex: 1 }}
-    behavior={Platform.OS === "ios" ? "padding" : undefined}
-  >
-    <LinearGradient
-      colors={["#87a2eb9f", "#c581c960"]}
-      start={{ x: 0.5, y: 0 }}
-      end={{ x: 0.5, y: 1 }}
+    <KeyboardAvoidingView
       style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <SafeAreaView style={{ flex: 1 }}>
-        {/* Top bar */}
-        <View style={[styles.topBar, { paddingTop: insets.top > 0 ? 0 : 8 }]}>
-          <TouchableOpacity
-            style={styles.topIconBtn}
-            onPress={() => router.back()}
-            disabled={isBusy}
-            activeOpacity={0.8}
-            hitSlop={10}
-          >
-            <Ionicons name="chevron-back" size={22} />
-          </TouchableOpacity>
+      <LinearGradient
+        colors={["#87a2eb9f", "#c581c960"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{ flex: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={[styles.topBar, { paddingTop: insets.top > 0 ? 0 : 8 }]}>
+            <TouchableOpacity
+              style={styles.topIconBtn}
+              onPress={() => router.back()}
+              disabled={isBusy}
+              activeOpacity={0.8}
+              hitSlop={10}
+            >
+              <Ionicons name="chevron-back" size={22} />
+            </TouchableOpacity>
 
-          <View style={{ alignItems: "center", flex: 1 }}>
-            <Text style={styles.header}>{isEdit ? "Editar" : "Criar"}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.topIconBtn, !canSave && styles.topIconBtnDisabled]}
-            onPress={() => {
-              setMsg(null);
-              setMetaOpen(true);
-            }}
-            disabled={!canSave}
-            activeOpacity={0.8}
-            hitSlop={10}
-          >
-            {isSaving || isUploading ? (
-              <ActivityIndicator />
-            ) : (
-              <Ionicons name="save-outline" size={20} />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.container2}>
-          {msg && <Text style={styles.msg}>{msg}</Text>}
-
-          {isLoadingRoute ? (
-            <View style={{ marginTop: 14 }}>
-              <ActivityIndicator />
+            <View style={{ alignItems: "center", flex: 1 }}>
+              <Text style={styles.header}>{isEdit ? "Editar" : "Criar"}</Text>
             </View>
-          ) : (
-            <FlatList
-              data={blocks}
-              keyExtractor={(item) => item.id}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{
-                paddingBottom: BOTTOM_BAR_HEIGHT + insets.bottom + 18,
+
+            <TouchableOpacity
+              style={[styles.topIconBtn, !canSave && styles.topIconBtnDisabled]}
+              onPress={() => {
+                setMsg(null);
+                setMetaOpen(true);
               }}
-              ListEmptyComponent={
-                <View style={{ alignItems: "center" }}>
-                  <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
-                </View>
-              }
-              renderItem={({ item, index }) => (
-                <BlockEditorItem
-                  block={item}
-                  index={index}
-                  isFirst={index === 0}
-                  isLast={index === blocks.length - 1}
-                  onChangeContent={updateBlock}
-                  onRemove={removeBlock}
-                  onMove={moveBlock}
-                  onUpdateFormat={(id, patch) =>
-                    setBlocks((prev) =>
-                      prev.map((b) =>
-                        b.id === id
-                          ? {
-                              ...b,
-                              format: {
-                                align: "left",
-                                bold: false,
-                                italic: false,
-                                underline: false,
-                                size: "md",
-                                ...b.format,
-                                ...patch,
-                              },
-                            }
-                          : b
-                      )
-                    )
-                  }
-                />
+              disabled={!canSave}
+              activeOpacity={0.8}
+              hitSlop={10}
+            >
+              {isSaving || isUploading ? (
+                <ActivityIndicator />
+              ) : (
+                <Ionicons name="save-outline" size={20} />
               )}
-            />
-          )}
-
-          {/* Bottom dock */}
-          <View
-            style={[
-              styles.bottomDock,
-              {
-                left: 12,
-                right: 12,
-                bottom: insets.bottom + 12,
-              },
-            ]}
-            pointerEvents="box-none"
-          >
-            <View style={styles.actionBar}>
-              <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => setShowOptions(true)}
-                disabled={isBusy}
-                activeOpacity={0.85}
-                hitSlop={10}
-              >
-                <Ionicons name="add-circle-outline" size={24} />
-                <Text style={styles.actionLabel}>Mais</Text>
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           </View>
 
-          {/* ✅ Modal: Antes de salvar (Título + Cliente) */}
-          <Modal transparent visible={metaOpen} animationType="slide">
-            <Pressable style={styles.sheetOverlay} onPress={() => setMetaOpen(false)}>
-              <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} onPress={() => {}}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>{isEdit ? "Dados da rota" : "Antes de salvar"}</Text>
+          <View style={styles.container2}>
+            {msg && <Text style={styles.msg}>{msg}</Text>}
 
-                <Text style={styles.label}>Título da rota</Text>
-                <TextInput
-                  value={routeTitle}
-                  onChangeText={setRouteTitle}
-                  placeholder="Ex.: Centro histórico + museus"
-                  style={styles.routeTitleInput}
-                  returnKeyType="next"
-                  autoFocus
-                />
+            {isLoadingRoute ? (
+              <View style={{ marginTop: 14 }}>
+                <ActivityIndicator />
+              </View>
+            ) : (
+              <FlatList
+                data={blocks}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{
+                  paddingBottom: BOTTOM_BAR_HEIGHT + insets.bottom + 18,
+                }}
+                ListEmptyComponent={
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={styles.empty}>Adicione blocos para montar sua rota</Text>
+                  </View>
+                }
+                renderItem={({ item, index }) => (
+                  <BlockEditorItem
+                    block={item}
+                    index={index}
+                    isFirst={index === 0}
+                    isLast={index === blocks.length - 1}
+                    onChangeContent={updateBlock}
+                    onRemove={removeBlock}
+                    onMove={moveBlock}
+                    onUpdateFormat={updateBlockFormat}
+                    onOpenSettings={(id) => setSettingsBlockId(id)}
+                  />
+                )}
+              />
+            )}
 
-                <Text style={styles.label}>Cliente</Text>
-                <TextInput
-                  value={clientName}
-                  onChangeText={setClientName}
-                  placeholder="Ex.: Agência XPTO / Maria Silva"
-                  style={styles.routeTitleInput}
-                  returnKeyType="done"
-                />
+            <View
+              style={[
+                styles.bottomDock,
+                {
+                  left: 12,
+                  right: 12,
+                  bottom: insets.bottom + 12,
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <View style={styles.actionBar}>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => setShowOptions(true)}
+                  disabled={isBusy}
+                  activeOpacity={0.85}
+                  hitSlop={10}
+                >
+                  <Ionicons name="add-circle-outline" size={24} />
+                  <Text style={styles.actionLabel}>Mais</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-                <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
-                  <TouchableOpacity
-                    style={[styles.confirmBtn, styles.confirmCancel]}
-                    onPress={() => setMetaOpen(false)}
-                    disabled={isBusy}
-                  >
-                    <Text style={styles.confirmCancelText}>Cancelar</Text>
+            <Modal transparent visible={metaOpen} animationType="slide">
+              <Pressable style={styles.sheetOverlay} onPress={() => setMetaOpen(false)}>
+                <Pressable
+                  style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
+                  onPress={() => {}}
+                >
+                  <View style={styles.sheetHandle} />
+                  <Text style={styles.sheetTitle}>{isEdit ? "Dados da rota" : "Antes de salvar"}</Text>
+
+                  <Text style={styles.label}>Título da rota</Text>
+                  <TextInput
+                    value={routeTitle}
+                    onChangeText={setRouteTitle}
+                    placeholder="Ex.: Centro histórico + museus"
+                    style={styles.routeTitleInput}
+                    returnKeyType="next"
+                    autoFocus
+                  />
+
+                  <Text style={styles.label}>Cliente</Text>
+                  <TextInput
+                    value={clientName}
+                    onChangeText={setClientName}
+                    placeholder="Ex.: Agência XPTO / Maria Silva"
+                    style={styles.routeTitleInput}
+                    returnKeyType="done"
+                  />
+
+                  <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                    <TouchableOpacity
+                      style={[styles.confirmBtn, styles.confirmCancel]}
+                      onPress={() => setMetaOpen(false)}
+                      disabled={isBusy}
+                    >
+                      <Text style={styles.confirmCancelText}>Cancelar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.confirmBtn, styles.confirmDelete]}
+                      onPress={async () => {
+                        if (routeTitle.trim().length < 3) {
+                          setMsg("Escolha um título para a rota (mín. 3 caracteres).");
+                          return;
+                        }
+                        setMetaOpen(false);
+                        await saveRoute();
+                      }}
+                      disabled={isBusy}
+                    >
+                      <Text style={styles.confirmDeleteText}>Salvar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            <Modal
+              transparent
+              visible={!!selectedBlock}
+              animationType="slide"
+              onRequestClose={() => setSettingsBlockId(null)}
+            >
+              <Pressable style={styles.sheetOverlay} onPress={() => setSettingsBlockId(null)}>
+                <Pressable
+                  style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
+                  onPress={() => {}}
+                >
+                  <View style={styles.sheetHandle} />
+                  <Text style={styles.sheetTitle}>Configurações do bloco</Text>
+
+                  {selectedBlock && selectedIsTextual && (
+                    <>
+                      <Text style={styles.sectionTitle}>Texto</Text>
+
+                      <View style={styles.row}>
+                        <OptionChip
+                          label="Negrito"
+                          active={selectedBold}
+                          icon={<MaterialCommunityIcons name="format-bold" size={16} color="#111827" />}
+                          onPress={() =>
+                            updateBlockFormat(selectedBlock.id, { bold: !selectedBold })
+                          }
+                        />
+                        <OptionChip
+                          label="Itálico"
+                          active={selectedItalic}
+                          icon={<MaterialCommunityIcons name="format-italic" size={16} color="#111827" />}
+                          onPress={() =>
+                            updateBlockFormat(selectedBlock.id, { italic: !selectedItalic })
+                          }
+                        />
+                        <OptionChip
+                          label="Sublinhar"
+                          active={selectedUnderline}
+                          icon={<MaterialCommunityIcons name="format-underline" size={16} color="#111827" />}
+                          onPress={() =>
+                            updateBlockFormat(selectedBlock.id, { underline: !selectedUnderline })
+                          }
+                        />
+                      </View>
+
+                      <Text style={styles.subTitle}>Alinhamento</Text>
+                      <View style={styles.row}>
+                        <OptionChip
+                          label="Esq."
+                          active={selectedAlign === "left"}
+                          icon={<MaterialCommunityIcons name="format-align-left" size={16} color="#111827" />}
+                          onPress={() => updateBlockFormat(selectedBlock.id, { align: "left" })}
+                        />
+                        <OptionChip
+                          label="Centro"
+                          active={selectedAlign === "center"}
+                          icon={<MaterialCommunityIcons name="format-align-center" size={16} color="#111827" />}
+                          onPress={() => updateBlockFormat(selectedBlock.id, { align: "center" })}
+                        />
+                        <OptionChip
+                          label="Dir."
+                          active={selectedAlign === "right"}
+                          icon={<MaterialCommunityIcons name="format-align-right" size={16} color="#111827" />}
+                          onPress={() => updateBlockFormat(selectedBlock.id, { align: "right" })}
+                        />
+                        <OptionChip
+                          label="Just."
+                          active={selectedAlign === "justify"}
+                          icon={<MaterialCommunityIcons name="format-align-justify" size={16} color="#111827" />}
+                          onPress={() => updateBlockFormat(selectedBlock.id, { align: "justify" })}
+                        />
+                      </View>
+
+                      <Text style={styles.subTitle}>Tamanho da fonte</Text>
+                      <View style={styles.fontSizeBox}>
+                        <View style={styles.fontSizeHeader}>
+                          <Text style={styles.fontSizeLabel}>Ajuste o tamanho</Text>
+                          <Text style={styles.fontSizeValue}>{selectedFontSize}px</Text>
+                        </View>
+
+                        <Slider
+                          value={selectedFontSize}
+                          minimumValue={MIN_FONT_SIZE}
+                          maximumValue={MAX_FONT_SIZE}
+                          step={1}
+                          onSlidingComplete={(value) =>
+                            updateBlockFormat(selectedBlock.id, {
+                              size: clamp(Math.round(value), MIN_FONT_SIZE, MAX_FONT_SIZE),
+                            })
+                          }
+                        />
+
+                        <View style={styles.fontSizeLimits}>
+                          <Text style={styles.fontSizeLimitText}>{MIN_FONT_SIZE}px</Text>
+                          <Text style={styles.fontSizeLimitText}>{MAX_FONT_SIZE}px</Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
+
+                  <Text style={styles.sectionTitle}>Ações</Text>
+                  {selectedBlock && (
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => {
+                        removeBlock(selectedBlock.id);
+                        setSettingsBlockId(null);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                      <Text style={styles.deleteButtonText}>Excluir bloco</Text>
+                    </TouchableOpacity>
+                  )}
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            <Modal transparent visible={showOptions} animationType="slide">
+              <Pressable style={styles.sheetOverlay} onPress={() => setShowOptions(false)}>
+                <Pressable
+                  style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
+                  onPress={() => {}}
+                >
+                  <View style={styles.sheetHandle} />
+                  <Text style={styles.sheetTitle}>Mais opções</Text>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("title")}>
+                    <Ionicons name="text-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Título</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("text")}>
+                    <Ionicons name="document-text-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Texto</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("description")}>
+                    <Ionicons name="reader-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Descrição</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addImageBlock}>
+                    <Ionicons name="image-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Imagem</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addCarouselBlock}>
+                    <Ionicons name="images-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Carrossel</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.confirmBtn, styles.confirmDelete]}
-                    onPress={async () => {
-                      if (routeTitle.trim().length < 3) {
-                        setMsg("Escolha um título para a rota (mín. 3 caracteres).");
-                        return;
-                      }
-                      setMetaOpen(false);
-                      await saveRoute();
+                    style={styles.sheetItem}
+                    onPress={() => {
+                      setMsg("Opção de mapa (em breve).");
+                      setShowOptions(false);
                     }}
-                    disabled={isBusy}
                   >
-                    <Text style={styles.confirmDeleteText}>Salvar</Text>
+                    <Ionicons name="map-outline" size={22} />
+                    <Text style={styles.sheetItemText}>Mapa</Text>
                   </TouchableOpacity>
-                </View>
+
+                  <TouchableOpacity
+                    style={styles.sheetItem}
+                    onPress={() => {
+                      setMsg("Inserir lista (em breve).");
+                      setShowOptions(false);
+                    }}
+                  >
+                    <Ionicons name="list-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Inserir lista</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.sheetItem}
+                    onPress={() => {
+                      setMsg("Adicionar ponto no mapa (em breve).");
+                      setShowOptions(false);
+                    }}
+                  >
+                    <Ionicons name="pin-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Adicionar ponto no mapa</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addAudioBlock}>
+                    <Ionicons name="mic-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Áudio</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetItem} onPress={addVideoBlock}>
+                    <Ionicons name="videocam-outline" size={20} />
+                    <Text style={styles.sheetItemText}>Vídeo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.sheetItem, { justifyContent: "center" }]}
+                    onPress={() => setShowOptions(false)}
+                  >
+                    <Text style={{ fontWeight: "700", color: "#6B7280" }}>Fechar</Text>
+                  </TouchableOpacity>
+                </Pressable>
               </Pressable>
-            </Pressable>
-          </Modal>
+            </Modal>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    </KeyboardAvoidingView>
+  );
+}
 
-          {/* Bottom sheet "Mais" */}
-          <Modal transparent visible={showOptions} animationType="slide">
-            <Pressable style={styles.sheetOverlay} onPress={() => setShowOptions(false)}>
-              <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} onPress={() => {}}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>Mais opções</Text>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("title")}>
-                  <Ionicons name="text-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Título</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("text")}>
-                  <Ionicons name="document-text-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Texto</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => addBlock("description")}>
-                  <Ionicons name="reader-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Descrição</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addImageBlock}>
-                  <Ionicons name="image-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Imagem</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={() => setMsg("Opção de mapa (em breve).")}>
-                  <Ionicons name="map-outline" size={22} />
-                  <Text style={styles.sheetItemText}>Mapa</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.sheetItem}
-                  onPress={() => {
-                    setMsg("Inserir lista (em breve).");
-                    setShowOptions(false);
-                  }}
-                >
-                  <Ionicons name="list-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Inserir lista</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.sheetItem}
-                  onPress={() => {
-                    setMsg("Adicionar ponto no mapa (em breve).");
-                    setShowOptions(false);
-                  }}
-                >
-                  <Ionicons name="pin-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Adicionar ponto no mapa</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addAudioBlock}>
-                  <Ionicons name="mic-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Áudio</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.sheetItem} onPress={addVideoBlock}>
-                  <Ionicons name="videocam-outline" size={20} />
-                  <Text style={styles.sheetItemText}>Vídeo</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={[styles.sheetItem, { justifyContent: "center" }]} onPress={() => setShowOptions(false)}>
-                  <Text style={{ fontWeight: "700", color: "#6B7280" }}>Fechar</Text>
-                </TouchableOpacity>
-              </Pressable>
-            </Pressable>
-          </Modal>
-        </View>
-      </SafeAreaView>
-    </LinearGradient>
-  </KeyboardAvoidingView>
-);
+function OptionChip({
+  label,
+  active,
+  icon,
+  onPress,
+}: {
+  label: string;
+  active?: boolean;
+  icon?: React.ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive]}
+    >
+      {icon ? <View style={{ marginRight: 8 }}>{icon}</View> : null}
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -666,25 +948,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
 
-  // TOP BAR
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     minHeight: 50,
     paddingHorizontal: 10,
-    backgroundColor: "#ffffff96",
+    backgroundColor: "#ffffff00",
   },
 
   topIconBtn: {
     height: 40,
     width: 40,
-    borderRadius: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#ffffff99",
-    margin:5,
-    marginTop:5,
+    margin: 5,
+    marginTop: 5,
   },
 
   topIconBtnDisabled: {
@@ -697,7 +978,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter",
   },
 
-  // INPUTS
   label: {
     marginBottom: 6,
     fontWeight: "500",
@@ -717,7 +997,6 @@ const styles = StyleSheet.create({
     color: "#1a1919",
   },
 
-  // TEXTOS
   msg: {
     color: "#B00020",
     marginBottom: 8,
@@ -729,7 +1008,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // BOTTOM DOCK
   bottomDock: {
     position: "absolute",
     left: 12,
@@ -746,14 +1024,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-
     gap: 6,
     paddingVertical: 14,
     paddingHorizontal: 20,
-
     borderRadius: 16,
     backgroundColor: "#F3F4F6",
-
     elevation: 4,
   },
 
@@ -763,7 +1038,6 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
 
-  // SHEET
   sheetOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.35)",
@@ -804,13 +1078,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // BOTÕES MODAL
-  confirmActions: {
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "flex-end",
-  },
-
   confirmBtn: {
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -836,5 +1103,109 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#fff",
   },
-  
+
+  sectionTitle: {
+    marginTop: 6,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  subTitle: {
+    marginTop: 10,
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+
+  chipActive: {
+    borderColor: "#111827",
+    backgroundColor: "#FFFFFF",
+  },
+
+  chipText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  chipTextActive: {
+    color: "#111827",
+  },
+
+  fontSizeBox: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    padding: 12,
+  },
+
+  fontSizeHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  fontSizeLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111827",
+  },
+
+  fontSizeValue: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  fontSizeLimits: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+
+  fontSizeLimitText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
+
+  deleteButton: {
+    marginTop: 4,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  deleteButtonText: {
+    color: "#DC2626",
+    fontSize: 14,
+    fontWeight: "800",
+  },
 });

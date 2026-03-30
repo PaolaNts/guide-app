@@ -1,11 +1,8 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { Video, Audio } from "expo-av";
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import {
   Image,
-  Modal,
-  Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -13,21 +10,30 @@ import {
   View,
 } from "react-native";
 import Slider from "@react-native-community/slider";
+import CarouselBlock from "./CarouselBlock";
 
-export type BlockType = "title" | "text" | "description" | "image" | "video" | "audio";
+export type BlockType =
+  | "title"
+  | "text"
+  | "description"
+  | "image"
+  | "video"
+  | "audio"
+  | "carousel";
+
 export type Align = "left" | "center" | "right" | "justify";
-export type FontSize = "sm" | "md" | "lg";
 
 export type Block = {
   id: string;
   type: BlockType;
   content: string;
+  publicId?: string;
   format?: {
-    align?: Align; // se vier "start", normalizamos abaixo
+    align?: Align;
     bold?: boolean;
     italic?: boolean;
     underline?: boolean;
-    size?: FontSize;
+    size?: number;
   };
 };
 
@@ -40,8 +46,16 @@ type Props = {
   onChangeContent: (id: string, value: string) => void;
   onRemove: (id: string) => void;
   onMove: (index: number, direction: "up" | "down") => void;
-
   onUpdateFormat: (id: string, patch: Partial<NonNullable<Block["format"]>>) => void;
+
+  onOpenSettings: (id: string) => void;
+};
+
+const MIN_FONT_SIZE = 12;
+const MAX_FONT_SIZE = 28;
+
+const clamp = (value: number, min: number, max: number) => {
+  return Math.min(Math.max(value, min), max);
 };
 
 export default function BlockEditorItem({
@@ -50,72 +64,51 @@ export default function BlockEditorItem({
   isFirst,
   isLast,
   onChangeContent,
-  onRemove,
   onMove,
-  onUpdateFormat,
+  onOpenSettings,
 }: Props) {
-  const isTextual = block.type === "title" || block.type === "text" || block.type === "description";
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
   const placeholder =
-    block.type === "title" ? "Título" : block.type === "description" ? "Descrição" : "Texto";
+    block.type === "title"
+      ? "Título"
+      : block.type === "description"
+      ? "Descrição"
+      : "Texto";
 
-  // ========
-  // FORMAT
-  // ========
   const rawAlign = (block.format?.align ?? "left") as any;
   const align: Align = rawAlign === "start" ? "left" : rawAlign;
 
   const bold = !!block.format?.bold;
   const italic = !!block.format?.italic;
   const underline = !!block.format?.underline;
-  const size: FontSize = block.format?.size ?? "md";
 
-  const alignIcon = useMemo(() => {
-    switch (align) {
-      case "center":
-        return "format-align-center";
-      case "right":
-        return "format-align-right";
-      case "justify":
-        return "format-align-justify";
-      default:
-        return "format-align-left";
-    }
-  }, [align]);
+  const defaultFontSize =
+    block.type === "title" ? 20 : block.type === "description" ? 15 : 16;
 
-  const sizeStyle = size === "sm" ? styles.sizeSm : size === "lg" ? styles.sizeLg : styles.sizeMd;
+  const fontSize = clamp(block.format?.size ?? defaultFontSize, MIN_FONT_SIZE, MAX_FONT_SIZE);
+
+  const fontWeight = bold
+    ? ("700" as const)
+    : block.type === "title"
+    ? ("600" as const)
+    : ("400" as const);
 
   const inputStyle = useMemo(
     () => [
       styles.input,
       block.type === "title" && styles.titleInput,
       block.type === "description" && styles.descriptionInput,
-      sizeStyle,
       {
         textAlign: align,
-        fontWeight: bold ? ("700" as const) : ("400" as const),
+        fontWeight,
         fontStyle: italic ? ("italic" as const) : ("normal" as const),
         textDecorationLine: underline ? ("underline" as const) : ("none" as const),
-        lineHeight: block.type === "text" ? 22 : undefined,
+        fontSize,
+        lineHeight: Math.round(fontSize * 1.4),
       },
     ],
-    [align, bold, italic, underline, sizeStyle, block.type]
+    [align, fontWeight, italic, underline, fontSize, block.type]
   );
 
-  // =========================
-  // ACTIONS (FORMAT)
-  // =========================
-  const setAlign = (value: Align) => onUpdateFormat(block.id, { align: value });
-  const setSize = (value: FontSize) => onUpdateFormat(block.id, { size: value });
-
-  const toggleBold = () => onUpdateFormat(block.id, { bold: !bold });
-  const toggleItalic = () => onUpdateFormat(block.id, { italic: !italic });
-  const toggleUnderline = () => onUpdateFormat(block.id, { underline: !underline });
-
-  // =========================
-  // AUDIO PLAYER (expo-av)
-  // =========================
   const soundRef = useRef<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMillis, setPositionMillis] = useState(0);
@@ -202,118 +195,14 @@ export default function BlockEditorItem({
     setIsPlaying(false);
     setPositionMillis(0);
     setDurationMillis(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUri]);
+  }, [audioUri, block.type]);
 
   useEffect(() => {
     return () => {
       unloadSound();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // =========================
-  // SETTINGS SHEET (MODAL)
-  // =========================
-  const SettingsSheet = () => (
-    <Modal visible={settingsOpen} transparent animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
-      {/* backdrop */}
-      <Pressable style={styles.backdrop} onPress={() => setSettingsOpen(false)} />
-
-      {/* sheet */}
-      <View style={styles.sheet}>
-        <View style={styles.sheetHeader}>
-          <Text style={styles.sheetTitle}>Configurações do bloco</Text>
-          <TouchableOpacity onPress={() => setSettingsOpen(false)} style={styles.closeBtn}>
-            <Ionicons name="close" size={18} color="#111827" />
-          </TouchableOpacity>
-        </View>
-
-        {/* TEXT OPTIONS */}
-        {isTextual && (
-          <>
-            <Text style={styles.sectionTitle}>Texto</Text>
-
-            <View style={styles.row}>
-              <OptionChip
-                label="Negrito"
-                active={bold}
-                icon={<MaterialCommunityIcons name="format-bold" size={16} color="#111827" />}
-                onPress={toggleBold}
-              />
-              <OptionChip
-                label="Itálico"
-                active={italic}
-                icon={<MaterialCommunityIcons name="format-italic" size={16} color="#111827" />}
-                onPress={toggleItalic}
-              />
-              <OptionChip
-                label="Sublinhar"
-                active={underline}
-                icon={<MaterialCommunityIcons name="format-underline" size={16} color="#111827" />}
-                onPress={toggleUnderline}
-              />
-            </View>
-
-            <Text style={styles.subTitle}>Alinhamento</Text>
-            <View style={styles.row}>
-              <OptionChip
-                label="Esq."
-                active={align === "left"}
-                icon={<MaterialCommunityIcons name="format-align-left" size={16} color="#111827" />}
-                onPress={() => setAlign("left")}
-              />
-              <OptionChip
-                label="Centro"
-                active={align === "center"}
-                icon={<MaterialCommunityIcons name="format-align-center" size={16} color="#111827" />}
-                onPress={() => setAlign("center")}
-              />
-              <OptionChip
-                label="Dir."
-                active={align === "right"}
-                icon={<MaterialCommunityIcons name="format-align-right" size={16} color="#111827" />}
-                onPress={() => setAlign("right")}
-              />
-              <OptionChip
-                label="Just."
-                active={align === "justify"}
-                icon={<MaterialCommunityIcons name="format-align-justify" size={16} color="#111827" />}
-                onPress={() => setAlign("justify")}
-              />
-            </View>
-
-            <Text style={styles.subTitle}>Tamanho</Text>
-            <View style={styles.row}>
-              <OptionChip label="P" active={size === "sm"} onPress={() => setSize("sm")} />
-              <OptionChip label="M" active={size === "md"} onPress={() => setSize("md")} />
-              <OptionChip label="G" active={size === "lg"} onPress={() => setSize("lg")} />
-            </View>
-          </>
-        )}
-
-        {/* GENERAL OPTIONS */}
-        <Text style={styles.sectionTitle}>Ações</Text>
-        <View style={styles.row}>
-          <OptionChip
-            label="Excluir bloco"
-            danger
-            icon={<Ionicons name="trash-outline" size={16} color="#EF4444" />}
-            onPress={() => {
-              setSettingsOpen(false);
-              onRemove(block.id);
-            }}
-          />
-        </View>
-
-        <View style={{ height: 6 }} />
-      </View>
-    </Modal>
-  );
-
-  // =========================
-  // HEADER (clean)
-  // =========================
   const BlockHeader = () => (
     <View style={styles.blockHeader}>
       <View style={styles.moveButtons}>
@@ -334,20 +223,28 @@ export default function BlockEditorItem({
         </TouchableOpacity>
       </View>
 
-      <View style={styles.headerRight}>
-       
-
-        <TouchableOpacity style={styles.gearBtn} onPress={() => setSettingsOpen(true)}>
-          <Ionicons name="ellipsis-horizontal" size={20} color="#111827" />
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity style={styles.gearBtn} onPress={() => onOpenSettings(block.id)}>
+        <Ionicons name="ellipsis-horizontal" size={20} color="#111827" />
+      </TouchableOpacity>
     </View>
   );
 
-  // =========================
-  // CONTENT
-  // =========================
   const renderContent = () => {
+    if (block.type === "carousel") {
+      let images: string[] = [];
+
+      try {
+        const parsed = JSON.parse(block.content || "[]");
+        images = Array.isArray(parsed)
+          ? parsed.map((item: any) => (typeof item === "string" ? item : item?.url)).filter(Boolean)
+          : [];
+      } catch {
+        images = [];
+      }
+
+      return <CarouselBlock images={images} />;
+    }
+
     if (block.type === "image") {
       const uri = typeof block.content === "string" ? block.content : "";
       const ok = uri.startsWith("http") || uri.startsWith("file:");
@@ -367,7 +264,12 @@ export default function BlockEditorItem({
       const ok = uri.startsWith("http") || uri.startsWith("file:");
       return ok ? (
         <View style={styles.mediaWrap}>
-          <Video source={{ uri }} style={styles.video} useNativeControls resizeMode={"contain" as any} />
+          <Video
+            source={{ uri }}
+            style={styles.video}
+            useNativeControls
+            resizeMode={"contain" as any}
+          />
         </View>
       ) : (
         <View style={styles.invalidBox}>
@@ -379,6 +281,7 @@ export default function BlockEditorItem({
     if (block.type === "audio") {
       const uri = audioUri;
       const ok = !!uri && (uri.startsWith("http") || uri.startsWith("file:"));
+
       if (!ok) {
         return (
           <View style={styles.invalidBox}>
@@ -424,48 +327,7 @@ export default function BlockEditorItem({
     <View style={styles.block}>
       <BlockHeader />
       {renderContent()}
-      <SettingsSheet />
     </View>
-  );
-}
-
-// =========================
-// REUSABLE CHIP
-// =========================
-function OptionChip({
-  label,
-  active,
-  icon,
-  danger,
-  onPress,
-}: {
-  label: string;
-  active?: boolean;
-  icon?: React.ReactNode;
-  danger?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[
-        styles.chip,
-        active && styles.chipActive,
-        danger && styles.chipDanger,
-        danger && active && styles.chipDangerActive,
-      ]}
-    >
-      {icon ? <View style={{ marginRight: 8 }}>{icon}</View> : null}
-      <Text
-        style={[
-          styles.chipText,
-          active && styles.chipTextActive,
-          danger && styles.chipTextDanger,
-        ]}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
   );
 }
 
@@ -477,7 +339,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // HEADER
   blockHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -485,9 +346,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  moveButtons: { flexDirection: "row", gap: 10 },
 
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  moveButtons: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
   gearBtn: {
     width: 36,
     height: 36,
@@ -499,42 +363,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  summaryPills: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  pill: {
-    paddingHorizontal: 8,
-    height: 24,
-    borderRadius: 999,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 6,
-  },
-  pillText: { fontSize: 11, fontWeight: "800", color: "#111827" },
-
-  // TEXT
   input: {
-    fontSize: 16,
     color: "#121213",
     padding: 0,
     margin: 0,
   },
-  titleInput: { fontSize: 20, fontWeight: "600", color: "#000000" },
-  descriptionInput: { color: "#6B7280" },
-  sizeSm: { fontSize: 13 },
-  sizeMd: { fontSize: 16 },
-  sizeLg: { fontSize: 18 },
 
-  // MEDIA
+  titleInput: {
+    color: "#000000",
+  },
+
+  descriptionInput: {
+    color: "#6B7280",
+  },
+
   mediaWrap: {
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#E5E7EB",
   },
-  image: { width: "100%", height: 400 },
-  video: { width: "100%", height: 220 },
+
+  image: {
+    width: "100%",
+    height: 400,
+  },
+
+  video: {
+    width: "100%",
+    height: 220,
+  },
 
   invalidBox: {
     padding: 12,
@@ -543,9 +400,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-  invalidText: { color: "#6B7280", fontWeight: "600" },
 
-  // AUDIO
+  invalidText: {
+    color: "#6B7280",
+    fontWeight: "600",
+  },
+
   audioPlayer: {
     flexDirection: "row",
     alignItems: "center",
@@ -556,6 +416,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
+
   audioPlayBtn: {
     width: 38,
     height: 38,
@@ -566,85 +427,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  audioTimes: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  audioTimeText: { fontSize: 12, color: "#6B7280", fontWeight: "600" },
 
-  // MODAL / SHEET
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.25)",
-  },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  sheetHeader: {
+  audioTimes: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  sheetTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-  closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
+    marginTop: 4,
   },
 
-  sectionTitle: {
-    marginTop: 6,
-    marginBottom: 8,
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  subTitle: {
-    marginTop: 10,
-    marginBottom: 8,
+  audioTimeText: {
     fontSize: 12,
-    fontWeight: "700",
     color: "#6B7280",
+    fontWeight: "600",
   },
-
-  row: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-
-  // CHIPS
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  chipActive: {
-    borderColor: "#111827",
-    backgroundColor: "#FFFFFF",
-  },
-  chipDanger: {
-    backgroundColor: "#FFF1F2",
-    borderColor: "#FECDD3",
-  },
-  chipDangerActive: {
-    borderColor: "#EF4444",
-    backgroundColor: "#FFFFFF",
-  },
-  chipText: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  chipTextActive: { color: "#111827" },
-  chipTextDanger: { color: "#EF4444" },
 });

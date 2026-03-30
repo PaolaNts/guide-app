@@ -30,18 +30,16 @@ function guessName(uri: string, kind: UploadArgs["kind"]) {
 
 export async function uploadMediaCloudinary({ uri, kind }: UploadArgs) {
   const cloudName = "dmpynvo8c";
-  const uploadPreset = "app_upload"; // precisa existir no Cloudinary (unsigned)
-  const folder = kind; // opcional
+  const uploadPreset = "app_upload";
+  const folder = kind;
 
   const form = new FormData();
 
-  // ✅ WEB: precisa mandar Blob
   if (Platform.OS === "web") {
     const res = await fetch(uri);
     const blob = await res.blob();
     form.append("file", blob, guessName(uri, kind));
   } else {
-    // ✅ ANDROID/IOS: pode mandar { uri, type, name }
     form.append("file", {
       uri,
       type: guessMime(uri, kind),
@@ -66,6 +64,9 @@ export async function uploadMediaCloudinary({ uri, kind }: UploadArgs) {
     throw new Error(data?.error?.message || "Falha no upload (Cloudinary).");
   }
 
-  // ✅ URL final (string)
-  return { url: data.secure_url as string };
+  return {
+    url: data.secure_url as string,
+    publicId: data.public_id as string,
+    resourceType: data.resource_type as string,
+  };
 }

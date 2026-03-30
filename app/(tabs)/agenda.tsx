@@ -292,7 +292,14 @@ export default function ClientAgenda() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable style={styles.card}>
+          <Pressable style={styles.card}
+          onPress={() =>
+            router.push({
+              pathname: "/routes/view",
+              params: { routeId: item.id },
+            })
+          }>
+            
             <Text style={styles.cardClient}>{item.client}</Text>
             <Text style={styles.cardService}>{item.service}</Text>
 

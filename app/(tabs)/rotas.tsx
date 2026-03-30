@@ -22,6 +22,7 @@ import {
   getDocs,
   where,
   updateDoc,
+  getDoc,
 } from "firebase/firestore";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "@/src/firebaseConfig";
@@ -80,6 +81,16 @@ export default function Routes() {
         if (!routeId) continue;
 
         const routeRef = doc(db, "users", userUid, "routes", routeId);
+
+        const snap = await getDoc(routeRef);
+        const current = snap.data();
+
+        if (!current) continue;
+
+        // Não sobrescreve se a rota já estiver agendada
+        if (current.status === "scheduled" || current.scheduleStatus === "done") {
+          continue;
+        }
 
         await updateDoc(routeRef, {
           status: "accepted",
@@ -158,9 +169,11 @@ export default function Routes() {
   function formatDateTime(ts: any) {
     try {
       const d: Date =
-        ts?.toDate?.() instanceof Date ? ts.toDate() :
-        ts instanceof Date ? ts :
-        new Date();
+        ts?.toDate?.() instanceof Date
+          ? ts.toDate()
+          : ts instanceof Date
+            ? ts
+            : new Date();
 
       const date = d.toLocaleDateString("pt-BR");
       const time = d.toLocaleTimeString("pt-BR", {

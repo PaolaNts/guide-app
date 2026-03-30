@@ -8,6 +8,7 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -28,8 +29,12 @@
       "permissions": [
         "CAMERA",
         "READ_MEDIA_VIDEO",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_MEDIA_VIDEO",
         "RECORD_AUDIO"
-      ]
+      ],
+      "package": "com.anonymous.myapp"
     },
     "web": {
       "output": "static",
